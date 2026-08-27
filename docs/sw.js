@@ -2,7 +2,7 @@
    앱 껍데기를 캐시해서 오프라인에서도 열리게 한다.
    사용자 기록은 localStorage에 있으므로 이 캐시와 무관하며, 캐시를 비워도 기록은 남는다. */
 
-const VERSION = 'v1.5';
+const VERSION = 'v1.6';
 const CACHE = 'daily-close-' + VERSION;
 const SHELL = [
   './',

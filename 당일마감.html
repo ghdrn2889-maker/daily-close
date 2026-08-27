@@ -307,7 +307,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v1.5</span></div>
+    <div class="brand">당일 마감 <span class="ver">v1.6</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -482,24 +482,88 @@ async function fetchExternalIncome(fromISO, toISO){
   return res.json();
 }
 
+/* 캐디 앱이 어떤 모양으로 주든 읽어낸다.
+   금액이 문자열로 오거나("170000"), 배열이 한 겹 싸여 오거나({data:[…]}),
+   필드 이름이 다르면(total, workDate) 예전 코드는 조용히 0건으로 넘어갔다. */
+var DATE_K = ['date','day','workdate','workedat','dt','ymd','workday'];
+var AMT_K  = ['amount','total','totalamount','income','revenue','pay','sum','money','price','won','caddiefee'];
+var CNT_K  = ['count','rounds','round','cnt','games','part','bu'];
+
+function numOf(v){
+  if(typeof v === 'number') return isFinite(v) ? v : NaN;
+  if(typeof v !== 'string') return NaN;
+  var t = v.replace(/[^0-9.-]/g, '');            /* "170,000원" -> "170000" */
+  return t ? Number(t) : NaN;
+}
+function pickKey(o, keys){
+  var low = {}, k;
+  for(k in o) if(Object.prototype.hasOwnProperty.call(o, k))
+    low[k.toLowerCase().replace(/[^a-z0-9]/g, '')] = o[k];
+  for(var i=0;i<keys.length;i++){
+    var v = low[keys[i]];
+    if(v !== undefined && v !== null && v !== '') return v;
+  }
+  return null;
+}
+function asList(x){
+  if(Array.isArray(x)) return x;
+  if(x && typeof x === 'object'){
+    var k = ['data','items','rows','list','result','results','records','days','income','work'];
+    for(var i=0;i<k.length;i++) if(Array.isArray(x[k[i]])) return x[k[i]];
+  }
+  return null;
+}
+function normRow(raw){
+  if(!raw || typeof raw !== 'object') return null;
+  var d = pickKey(raw, DATE_K), a = pickKey(raw, AMT_K), c = pickKey(raw, CNT_K);
+  if(d == null || a == null) return null;
+  /* 2026-08-20 · 20260820 · 2026-08-20T00:00:00Z 를 모두 받는다 */
+  var m = String(d).match(/(\d{4})\D?(\d{2})\D?(\d{2})/);
+  if(!m) return null;
+  a = numOf(a);
+  if(!isFinite(a) || !(a > 0)) return null;
+  c = numOf(c);
+  return { date: m[1]+'-'+m[2]+'-'+m[3], amount: Math.round(a),
+           count: (isFinite(c) && c >= 1) ? Math.round(c) : 1 };
+}
+
+/* 마지막 응답의 모양 — 저장하지 않고 이번 실행 동안만 들고 있는다 */
+var LAST_SHAPE = '';
+
 /* 받아온 날짜 구간을 그대로 맞춘다.
    - 새 날짜는 추가, 금액·라운드가 바뀐 날은 갱신
    - 구간 안인데 응답에 없는 날은 취소된 것이므로 지운다
    손으로 넣은 기록(ext 없음)은 절대 건드리지 않는다. */
 function applyCaddie(list, from, to){
-  var byDate = {}, seen = {};
-  (list||[]).forEach(function(r){
-    if(!r || !/^\d{4}-\d{2}-\d{2}$/.test(r.date)) return;
-    if(typeof r.amount !== 'number' || !(r.amount > 0)) return;
-    byDate[r.date] = r;
+  var byDate = {}, seen = {}, parsed = 0;
+  var arr = asList(list);
+  LAST_SHAPE = arr
+    ? (arr.length
+        ? '줄 '+arr.length+'개 · 키: '+Object.keys(arr[0]||{}).join(', ')+
+          ' · 첫 줄 '+JSON.stringify(arr[0]).slice(0,160)
+        : '빈 배열 — 이 기간에 근무가 없다고 옵니다')
+    : '배열이 아님 · '+String(JSON.stringify(list)).slice(0,160);
+
+  (arr||[]).forEach(function(raw){
+    var r = normRow(raw);
+    if(!r) return;
+    parsed++;
+    if(byDate[r.date]){                       /* 건별로 오면 하루치를 합산한다 */
+      byDate[r.date].amount += r.amount;
+      byDate[r.date].count  += r.count;
+    } else byDate[r.date] = r;
   });
+
+  /* 배열을 못 찾았거나 한 줄도 못 읽었으면 멈춘다.
+     그냥 진행하면 "이 기간엔 근무가 없다"로 읽혀 기존 기록을 지워버린다. */
+  if(!arr || (arr.length && !parsed)) return { added:0, updated:0, removed:0, parsed:0, bad:true };
 
   var added = 0, updated = 0, removed = 0, keep = [];
   state.txns.forEach(function(t){
     if(t.ext !== 'caddie' || t.date < from || t.date > to){ keep.push(t); return; }
     var r = byDate[t.date];
     if(!r){ removed++; return; }
-    var memo = '캐디 앱 · ' + (r.count || 1) + '부';
+    var memo = '캐디 앱 · ' + r.count + '부';
     if(t.amount !== Math.round(r.amount) || t.memo !== memo){
       t.amount = Math.round(r.amount); t.rounds = r.count; t.memo = memo;
       updated++;
@@ -512,13 +576,13 @@ function applyCaddie(list, from, to){
   Object.keys(byDate).forEach(function(d){
     if(seen[d]) return;
     var r = byDate[d];
-    push({ date:d, kind:'revenue', amount:Math.round(r.amount), category:'캐디피',
-           memo:'캐디 앱 · ' + (r.count || 1) + '부', rounds:r.count, ext:'caddie' });
+    push({ date:d, kind:'revenue', amount:r.amount, category:'캐디피',
+           memo:'캐디 앱 · ' + r.count + '부', rounds:r.count, ext:'caddie' });
     added++;
   });
 
   state.txns.sort(function(a,b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
-  return { added:added, updated:updated, removed:removed };
+  return { added:added, updated:updated, removed:removed, parsed:parsed };
 }
 
 var syncing = false;
@@ -548,15 +612,28 @@ async function syncCaddie(silent){
        후자는 브라우저가 막는 경우가 흔하다(사설망 접근 차단 등). */
     var is401 = !!(err && err.code === 401);
     state.sync.errKind = is401 ? '401' : 'net';
+    LAST_SHAPE = '';
     state.sync.error = is401 ? '열쇠를 확인해주세요' : '연결하지 못했어요';
     save(); renderSettings();
     if(!silent) toast(state.sync.error);
     return;
   }
 
-  var n = applyCaddie(list, from, to);
+  var n;
+  try{ n = applyCaddie(list, from, to); }
+  catch(ex){ n = { added:0, updated:0, removed:0, parsed:0, bad:true }; }
+
+  if(n.bad){
+    state.sync.errKind = 'shape';
+    state.sync.error = '응답을 읽지 못했어요';
+    save(); renderSettings();
+    if(!silent) toast(state.sync.error);
+    return;
+  }
+
   state.sync.at = Date.now();
   state.sync.error = '';
+  state.sync.errKind = '';
   state.sync.count = state.txns.filter(function(t){ return t.ext === 'caddie'; }).length;
   commit();
 
@@ -1013,6 +1090,14 @@ function renderSettings(){
         '<button class="sw" role="switch" aria-checked="'+(sy.tip?'true':'false')+
           '" data-tiptgl aria-label="팁 포함"></button></div>'+
       '<div class="pad"><button class="btn pri" id="syncNow">지금 가져오기</button></div>'+
+      (LAST_SHAPE
+        ? '<div class="note" style="padding-top:0"><b>마지막 응답</b><br>'+esc(LAST_SHAPE)+'</div>'
+        : '')+
+      (sy.errKind === 'shape'
+        ? '<div class="warn" style="margin:0 20px 14px">캐디 앱이 보낸 응답에서 '+
+          '<b>날짜와 금액을 찾지 못했습니다.</b> 위 <b>마지막 응답</b>을 캐디 앱 쪽에 그대로 보여주세요. '+
+          '기록은 건드리지 않았습니다.</div>'
+        : '')+
       (sy.errKind === 'net'
         ? '<div class="warn" style="margin:0 20px 14px">캐디 앱 서버에 닿지 못했습니다. '+
           '서버가 켜져 있는지 확인해 주세요. 계속 안 되면 지금 주소(<b>'+esc(hostOf(api))+
