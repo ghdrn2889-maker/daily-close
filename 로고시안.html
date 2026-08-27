@@ -1,0 +1,242 @@
+<title>당일 마감 로고 시안</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;500;600;700;800&display=swap">
+
+<style>
+:root{
+  --bg:#F4F5F7; --card:#FFFFFF; --sunk:#EEF0F3;
+  --ink:#15181D; --ink-2:#454C56; --muted:#8A929D; --faint:#B6BDC6;
+  --line:#E9EBEF;
+  --blue:#2D6FF7; --amber:#E08700; --red:#EC4756; --violet:#7C5CF0;
+  --wall-a:#DDE4F2; --wall-b:#EDE6F3;
+  --font:'Pretendard','Gothic A1','Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#101216; --card:#191C21; --sunk:#22262C;
+    --ink:#F2F4F6; --ink-2:#C2C8D0; --muted:#8B939D; --faint:#666E78;
+    --line:#262A30;
+    --blue:#5B9DF9; --amber:#F0A63C; --red:#F57883; --violet:#A28AF7;
+    --wall-a:#1C2333; --wall-b:#241F33;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#101216; --card:#191C21; --sunk:#22262C;
+  --ink:#F2F4F6; --ink-2:#C2C8D0; --muted:#8B939D; --faint:#666E78;
+  --line:#262A30;
+  --blue:#5B9DF9; --amber:#F0A63C; --red:#F57883; --violet:#A28AF7;
+  --wall-a:#1C2333; --wall-b:#241F33;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);
+  font-size:15px;line-height:1.6;letter-spacing:-.017em;-webkit-font-smoothing:antialiased}
+.wrap{max-width:820px;margin:0 auto;padding:44px 20px 72px}
+
+header{margin-bottom:36px}
+h1{margin:0;font-size:30px;font-weight:800;letter-spacing:-.045em;text-wrap:balance}
+header p{margin:10px 0 0;color:var(--muted);font-size:15px;max-width:60ch}
+
+.grid{display:flex;flex-direction:column;gap:14px}
+.item{background:var(--card);border-radius:20px;padding:24px;display:grid;
+  grid-template-columns:104px 1fr;gap:22px;align-items:start}
+@media (max-width:560px){ .item{grid-template-columns:1fr;gap:16px} }
+
+.hero{width:104px;height:104px;border-radius:24px;overflow:hidden;flex:none}
+.meta .no{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;font-weight:600;
+  color:var(--faint);letter-spacing:.1em}
+.meta h2{margin:5px 0 0;font-size:19px;font-weight:800;letter-spacing:-.04em}
+.meta h2 em{font-style:normal;color:var(--faint);font-weight:600;font-size:13px;margin-left:8px;
+  letter-spacing:0}
+.meta p{margin:9px 0 0;color:var(--ink-2);font-size:14.5px;max-width:56ch}
+.tag{display:inline-block;margin-top:12px;background:var(--sunk);color:var(--muted);
+  border-radius:99px;padding:5px 12px;font-size:12px;font-weight:700}
+
+.ladder{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);
+  display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap}
+.ladder .u{display:flex;flex-direction:column;align-items:center;gap:7px}
+.ladder .u span{font-size:10.5px;color:var(--faint);font-weight:600;
+  font-family:ui-monospace,Menlo,Consolas,monospace}
+.ladder .b{border-radius:22%;overflow:hidden;display:block}
+
+.phone{margin-top:40px;background:linear-gradient(150deg,var(--wall-a),var(--wall-b));
+  border-radius:24px;padding:30px 22px 34px}
+.phone .ttl{font-size:12px;font-weight:700;color:var(--ink-2);opacity:.7;
+  text-align:center;margin-bottom:22px;letter-spacing:.02em}
+.row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;max-width:460px;margin:0 auto}
+.slot{display:flex;flex-direction:column;align-items:center;gap:8px}
+.slot .b{width:100%;aspect-ratio:1;border-radius:23%;overflow:hidden}
+.slot small{font-size:10.5px;color:var(--ink-2);font-weight:600;opacity:.85;text-align:center}
+
+.note{margin-top:34px;background:var(--card);border-radius:20px;padding:22px 24px}
+.note h3{margin:0 0 8px;font-size:15px;font-weight:800;letter-spacing:-.03em}
+.note p{margin:0;color:var(--ink-2);font-size:14px}
+.note code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;
+  background:var(--sunk);padding:2px 7px;border-radius:6px}
+</style>
+
+<!-- ============ 시안 심볼 정의 ============ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+
+    <!-- 1. 마감선 -->
+    <symbol id="m1" viewBox="0 0 512 512">
+      <rect width="512" height="512" fill="#2D6FF7"/>
+      <rect x="128" y="150" width="256" height="38" rx="19" fill="#fff" opacity=".62"/>
+      <rect x="128" y="206" width="176" height="38" rx="19" fill="#fff" opacity=".62"/>
+      <rect x="128" y="278" width="256" height="7"  rx="3.5" fill="#fff" opacity=".45"/>
+      <rect x="128" y="309" width="216" height="52" rx="26" fill="#fff"/>
+    </symbol>
+
+    <!-- 2. 플러스 마이너스 -->
+    <symbol id="m2" viewBox="0 0 512 512">
+      <rect width="512" height="512" fill="#15181D"/>
+      <rect x="234" y="136" width="44" height="168" rx="22" fill="#4C8BFF"/>
+      <rect x="172" y="198" width="168" height="44" rx="22" fill="#4C8BFF"/>
+      <rect x="162" y="336" width="188" height="44" rx="22" fill="#fff"/>
+    </symbol>
+
+    <!-- 3. 네 축 -->
+    <symbol id="m3" viewBox="0 0 512 512">
+      <rect width="512" height="512" fill="#15181D"/>
+      <g transform="rotate(-90 256 256)" fill="none" stroke-width="62" stroke-linecap="butt">
+        <circle cx="256" cy="256" r="146" stroke="#2D6FF7" stroke-dasharray="203 714"  stroke-dashoffset="0"/>
+        <circle cx="256" cy="256" r="146" stroke="#E08700" stroke-dasharray="203 714"  stroke-dashoffset="-229"/>
+        <circle cx="256" cy="256" r="146" stroke="#EC4756" stroke-dasharray="203 714"  stroke-dashoffset="-458"/>
+        <circle cx="256" cy="256" r="146" stroke="#7C5CF0" stroke-dasharray="203 714"  stroke-dashoffset="-688"/>
+      </g>
+    </symbol>
+
+    <!-- 4. 오늘 칸 -->
+    <symbol id="m4" viewBox="0 0 512 512">
+      <rect width="512" height="512" fill="#2D6FF7"/>
+      <g fill="#fff">
+        <rect x="130" y="130" width="68" height="68" rx="22" opacity=".34"/>
+        <rect x="222" y="130" width="68" height="68" rx="22" opacity=".34"/>
+        <rect x="314" y="130" width="68" height="68" rx="22" opacity=".34"/>
+        <rect x="130" y="222" width="68" height="68" rx="22" opacity=".34"/>
+        <rect x="222" y="222" width="68" height="68" rx="22"/>
+        <rect x="314" y="222" width="68" height="68" rx="22" opacity=".34"/>
+        <rect x="130" y="314" width="68" height="68" rx="22" opacity=".34"/>
+        <rect x="222" y="314" width="68" height="68" rx="22" opacity=".34"/>
+        <rect x="314" y="314" width="68" height="68" rx="22" opacity=".34"/>
+      </g>
+    </symbol>
+
+    <!-- 5. 손익 막대 -->
+    <symbol id="m5" viewBox="0 0 512 512">
+      <rect width="512" height="512" fill="#2D6FF7"/>
+      <rect x="116" y="250" width="280" height="12" rx="6" fill="#fff" opacity=".45"/>
+      <g fill="#fff">
+        <rect x="138" y="186" width="52" height="70"  rx="26" opacity=".6"/>
+        <rect x="204" y="256" width="52" height="76"  rx="26" opacity=".6"/>
+        <rect x="270" y="132" width="52" height="124" rx="26"/>
+        <rect x="336" y="256" width="52" height="56"  rx="26" opacity=".6"/>
+      </g>
+    </symbol>
+
+  </defs>
+</svg>
+
+<div class="wrap">
+  <header>
+    <h1>당일 마감 로고 시안</h1>
+    <p>다섯 가지 서로 다른 발상입니다. 아이콘은 크게 볼 때가 아니라 홈 화면에서 28px로 줄어들 때가 진짜 시험대라, 각 시안마다 크기 사다리와 실제 배치를 함께 붙였습니다.</p>
+  </header>
+
+  <div class="grid">
+
+    <div class="item">
+      <svg class="hero"><use href="#m1"/></svg>
+      <div class="meta">
+        <div class="no">01</div>
+        <h2>마감선 <em>Closing Line</em></h2>
+        <p>장부를 덮을 때 긋는 밑줄에서 왔습니다. 위의 흐린 두 줄은 그날의 항목들, 아래 굵은 줄은 합계입니다. 앱 이름 '마감'을 형태로 직역한 시안이라 뜻이 가장 정확합니다.</p>
+        <span class="tag">이름과 직결</span>
+        <div class="ladder">
+          <div class="u"><svg class="b" width="64" height="64"><use href="#m1"/></svg><span>64</span></div>
+          <div class="u"><svg class="b" width="40" height="40"><use href="#m1"/></svg><span>40</span></div>
+          <div class="u"><svg class="b" width="28" height="28"><use href="#m1"/></svg><span>28</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="item">
+      <svg class="hero"><use href="#m2"/></svg>
+      <div class="meta">
+        <div class="no">02</div>
+        <h2>더하기 빼기 <em>Plus · Minus</em></h2>
+        <p>이 앱이 하는 일은 결국 더하고 빼는 것 하나뿐입니다. 위의 파란 플러스는 수익, 아래 흰 마이너스는 지출. 부호 두 개만으로 성립하는 가장 단순한 시안이고, 검정 바탕이라 홈 화면에서 눈에 띕니다.</p>
+        <span class="tag">가장 단순</span>
+        <div class="ladder">
+          <div class="u"><svg class="b" width="64" height="64"><use href="#m2"/></svg><span>64</span></div>
+          <div class="u"><svg class="b" width="40" height="40"><use href="#m2"/></svg><span>40</span></div>
+          <div class="u"><svg class="b" width="28" height="28"><use href="#m2"/></svg><span>28</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="item">
+      <svg class="hero"><use href="#m3"/></svg>
+      <div class="meta">
+        <div class="no">03</div>
+        <h2>네 축 <em>Four Axes</em></h2>
+        <p>수익·경비·소비·고정지출 네 갈래를 앱 안에서 쓰는 색 그대로 옮겼습니다. 파랑·주황·빨강·보라가 화면의 항목 점과 정확히 일치해서, 아이콘이 앱의 구조를 미리 설명합니다.</p>
+        <span class="tag">앱 색상과 일치</span>
+        <div class="ladder">
+          <div class="u"><svg class="b" width="64" height="64"><use href="#m3"/></svg><span>64</span></div>
+          <div class="u"><svg class="b" width="40" height="40"><use href="#m3"/></svg><span>40</span></div>
+          <div class="u"><svg class="b" width="28" height="28"><use href="#m3"/></svg><span>28</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="item">
+      <svg class="hero"><use href="#m4"/></svg>
+      <div class="meta">
+        <div class="no">04</div>
+        <h2>오늘 칸 <em>Today Cell</em></h2>
+        <p>달력의 한 칸을 채운 모습입니다. 하루에 한 칸씩 메워 나간다는 앱의 사용 리듬을 그대로 담았고, 월 화면의 날짜별 격자와도 형태가 이어집니다.</p>
+        <span class="tag">하루 단위 리듬</span>
+        <div class="ladder">
+          <div class="u"><svg class="b" width="64" height="64"><use href="#m4"/></svg><span>64</span></div>
+          <div class="u"><svg class="b" width="40" height="40"><use href="#m4"/></svg><span>40</span></div>
+          <div class="u"><svg class="b" width="28" height="28"><use href="#m4"/></svg><span>28</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="item">
+      <svg class="hero"><use href="#m5"/></svg>
+      <div class="meta">
+        <div class="no">05</div>
+        <h2>손익 막대 <em>Net Bars</em></h2>
+        <p>기준선 위아래로 뻗은 막대가 날마다 다른 손익입니다. 하나만 밝게 남겨 '오늘'을 가리킵니다. 다섯 중 가장 금융 앱다운 인상이지만, 그만큼 흔한 표현이기도 합니다.</p>
+        <span class="tag">가장 금융앱다움</span>
+        <div class="ladder">
+          <div class="u"><svg class="b" width="64" height="64"><use href="#m5"/></svg><span>64</span></div>
+          <div class="u"><svg class="b" width="40" height="40"><use href="#m5"/></svg><span>40</span></div>
+          <div class="u"><svg class="b" width="28" height="28"><use href="#m5"/></svg><span>28</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="phone">
+    <div class="ttl">홈 화면에 나란히 놓으면</div>
+    <div class="row">
+      <div class="slot"><svg class="b"><use href="#m1"/></svg><small>마감선</small></div>
+      <div class="slot"><svg class="b"><use href="#m2"/></svg><small>더하기빼기</small></div>
+      <div class="slot"><svg class="b"><use href="#m3"/></svg><small>네 축</small></div>
+      <div class="slot"><svg class="b"><use href="#m4"/></svg><small>오늘 칸</small></div>
+      <div class="slot"><svg class="b"><use href="#m5"/></svg><small>손익 막대</small></div>
+    </div>
+  </div>
+
+  <div class="note">
+    <h3>고르시면 바로 반영합니다</h3>
+    <p>번호만 알려주시면 <code>pwa/icons/</code> 의 PNG 네 종(192·512·maskable·apple-touch)을 그 시안으로 다시 뽑아 교체하겠습니다. 색이나 굵기만 손보고 싶은 부분이 있으면 그것도 함께 말씀해 주세요.</p>
+  </div>
+</div>

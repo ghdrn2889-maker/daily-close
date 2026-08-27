@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "당일 마감",
+  "short_name": "당일 마감",
+  "description": "수익·경비·소비·고정지출 네 축으로 하루를 마감하는 개인 현금흐름 앱",
+  "lang": "ko",
+  "dir": "ltr",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F4F5F7",
+  "theme_color": "#F4F5F7",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
