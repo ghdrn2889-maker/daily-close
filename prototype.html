@@ -294,7 +294,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v1.8</span></div>
+    <div class="brand">당일 마감 <span class="ver">v1.9</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -1438,14 +1438,27 @@ function sheetSub(id){
 function splitRows(text){
   return text.replace(/\r\n?/g, '\n').split('\n').filter(function(l){ return l.trim() !== ''; });
 }
+/* 천단위 구분자로 쓰인 쉼표만 센다 — "4,800" 의 쉼표는 열 구분이 아니다 */
+function thousandCommas(line){
+  var n = 0;
+  for(var i=1;i<line.length-3;i++){
+    if(line.charAt(i) !== ',') continue;
+    if(/\d/.test(line.charAt(i-1)) && /^\d{3}$/.test(line.substr(i+1,3)) &&
+       !/\d/.test(line.charAt(i+4))) n++;
+  }
+  return n;
+}
 function guessDelim(line){
   var t = (line.match(/\t/g)||[]).length, c = (line.match(/,/g)||[]).length,
       s = (line.match(/;/g)||[]).length;
   if(t > 0 && t >= c) return '\t';
   if(s > c) return ';';
+  /* 쉼표가 없거나, 있어도 전부 금액의 천단위면 공백으로 나뉜 표다 (PDF 복사) */
+  if((c === 0 || thousandCommas(line) >= c) && /\s{2,}/.test(line)) return ' ';
   return ',';
 }
 function splitCells(line, d){
+  if(d === ' ') return line.trim().split(/\s{2,}/).map(function(x){ return x.trim(); });
   var out = [], cur = '', q = false;
   for(var i=0;i<line.length;i++){
     var ch = line[i];
@@ -1608,7 +1621,11 @@ function parseSmsAll(text){
 function analyze(text){
   var lines = splitRows(text);
   if(lines.length < 2) return null;
-  var d = guessDelim(lines[0]);
+  var d = (function(){
+    var vote = {};
+    lines.slice(0, 12).forEach(function(l){ var k = guessDelim(l); vote[k] = (vote[k]||0) + 1; });
+    return Object.keys(vote).reduce(function(a,b){ return vote[b] > vote[a] ? b : a; });
+  })();
   var table = lines.map(function(l){ return splitCells(l, d); });
 
   /* 헤더로 보이는 첫 행 찾기 (날짜처럼 생긴 값이 없는 행) */
