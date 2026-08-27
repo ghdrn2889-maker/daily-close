@@ -60,6 +60,27 @@ button{cursor:pointer}
   letter-spacing:-.02em}
 .dgrp span{float:right;font-weight:700;color:var(--muted)}
 
+/* ---------- 거래내역 가져오기 ---------- */
+.maprow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.maprow .f{min-width:0}
+.maprow label{display:block;font-size:12px;color:var(--muted);font-weight:600;margin-bottom:6px}
+.maprow select{width:100%;background:var(--sunk);border:1.5px solid transparent;border-radius:11px;
+  padding:11px 10px;font-size:13.5px;font-weight:600;appearance:none;text-overflow:ellipsis}
+.tally{display:flex;gap:6px;flex-wrap:wrap;padding:14px 22px 0;font-size:12.5px;font-weight:700}
+.tally b{background:var(--sunk);border-radius:99px;padding:6px 11px;font-weight:700}
+.irows{max-height:46vh;overflow-y:auto;padding:8px 22px 0;
+  -webkit-overflow-scrolling:touch}
+.irow{display:grid;grid-template-columns:44px 1fr auto 74px;gap:8px;align-items:center;
+  padding:9px 0;border-bottom:1px solid var(--line)}
+.irow .d{font-size:11.5px;color:var(--faint);font-weight:600}
+.irow .n{font-size:13.5px;font-weight:600;letter-spacing:-.02em;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.irow .a{font-size:13px;font-weight:700;letter-spacing:-.03em;white-space:nowrap}
+.irow select{background:var(--sunk);border:0;border-radius:9px;padding:7px 6px;font-size:12.5px;
+  font-weight:700;appearance:none;width:100%;text-align:center}
+.irow.skip{opacity:.4}
+.dupe{font-size:12px;color:var(--faint);padding:10px 22px 0;font-weight:600}
+
 /* ---------- 상단 네비게이션 ---------- */
 .top{position:sticky;top:0;z-index:40;background:var(--bg);padding:16px 0 12px}
 .brand{font-size:14px;font-weight:800;letter-spacing:-.04em;color:var(--muted);
@@ -288,7 +309,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v1.0</span></div>
+    <div class="brand">당일 마감 <span class="ver">v1.1</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -386,6 +407,15 @@ select.inp{font-weight:600;appearance:none}
     </div>
 
     <div class="card">
+      <div class="chd"><span class="t">거래내역 가져오기</span><button class="btn sm" id="csvBtn">시작</button></div>
+      <div class="note">
+        토스·카드사·은행에서 받은 내역을 한 번에 넣습니다. 엑셀에서 <b>복사해 붙여넣거나</b> CSV 파일을 고르면
+        됩니다. 이미 넣은 건과 겹치면 자동으로 건너뜁니다.
+      </div>
+      <div id="ruleBox"></div>
+    </div>
+
+    <div class="card">
       <div class="chd"><span class="t">외부 연동</span></div>
       <div class="note">
         다른 앱에서 수익 기록을 자동으로 받아올 수 있습니다. 그쪽에서
@@ -446,7 +476,7 @@ function baseCats(){ return {
   cost:        ['교통비','재료비','장비','수수료','식사','기타'],
   consumption: ['식사','생활용품','의류','문화','기타']
 }; }
-function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats() }; }
+function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats(), rules:[] }; }
 
 var LOAD_ERROR = false;
 var state = (function(){
@@ -455,12 +485,18 @@ var state = (function(){
   if(!raw) return defaults();
   try{
     var p = JSON.parse(raw), c = baseCats();
-    if(p.cats) ['revenue','cost','consumption'].forEach(function(k){
+    (Array.isArray(p.rules) ? p.rules : []).forEach(function(r){
+    if(r && r.kw && KIND[r.kind] && !state.rules.some(function(x){ return x.kw === r.kw; }))
+      state.rules.push({ kw:r.kw, kind:r.kind });
+  });
+
+  if(p.cats) ['revenue','cost','consumption'].forEach(function(k){
       if(Array.isArray(p.cats[k]) && p.cats[k].length) c[k] = p.cats[k];
     });
     return { txns:       Array.isArray(p.txns)       ? p.txns       : [],
              presets:    Array.isArray(p.presets)    ? p.presets    : [],
              recurrings: Array.isArray(p.recurrings) ? p.recurrings : [],
+             rules:      Array.isArray(p.rules)      ? p.rules      : [],
              cats: c, savedAt: p.savedAt || 0, exportedAt: p.exportedAt || 0 };
   }catch(e){
     /* 읽기 실패 — 절대 덮어쓰지 않는다. 원본을 따로 보존하고 알린다. */
@@ -506,7 +542,7 @@ function exportPayload(){
   return JSON.stringify({
     app: 'daily-close', schema: SCHEMA, exportedAt: new Date().toISOString(),
     data: { txns: state.txns, presets: state.presets,
-            recurrings: state.recurrings, cats: state.cats }
+            recurrings: state.recurrings, cats: state.cats, rules: state.rules }
   }, null, 2);
 }
 function exportCSV(){
@@ -839,6 +875,15 @@ function renderSettings(){
     ? '마지막 백업 '+(ex.getMonth()+1)+'/'+ex.getDate()
     : '백업한 적 없음';
 
+  document.getElementById('ruleBox').innerHTML = state.rules.length
+    ? '<div class="catgrp" style="padding-bottom:6px"><div class="h">기억한 분류 ' + state.rules.length + '개</div>'+
+      '<div class="chips">' + state.rules.map(function(r){
+        return '<button data-ruledel="'+esc(r.kw)+'">'+esc(r.kw.slice(0,14))+
+          ' <b class="'+({revenue:'c-rev',cost:'c-cost',consumption:'c-cons'}[r.kind])+'">'+
+          KIND[r.kind]+'</b><b>×</b></button>';
+      }).join('') + '</div></div>'
+    : '';
+
   document.getElementById('catList').innerHTML =
     ['revenue','cost','consumption'].map(function(k){
       return '<div class="catgrp"><div class="h">'+KIND[k]+'</div><div class="chips">'+
@@ -1155,6 +1200,312 @@ function sheetSub(id){
   }
 }
 
+/* =====================================================================
+   거래내역 가져오기 — 토스/카드사/은행에서 받은 표를 그대로 받아들인다.
+   엑셀에서 복사하면 탭 구분, 파일로 받으면 대개 쉼표 구분이라 둘 다 처리한다.
+   ===================================================================== */
+
+/* --- 표 파싱 --- */
+function splitRows(text){
+  return text.replace(/\r\n?/g, '\n').split('\n').filter(function(l){ return l.trim() !== ''; });
+}
+function guessDelim(line){
+  var t = (line.match(/\t/g)||[]).length, c = (line.match(/,/g)||[]).length,
+      s = (line.match(/;/g)||[]).length;
+  if(t > 0 && t >= c) return '\t';
+  if(s > c) return ';';
+  return ',';
+}
+function splitCells(line, d){
+  var out = [], cur = '', q = false;
+  for(var i=0;i<line.length;i++){
+    var ch = line[i];
+    if(q){
+      if(ch === '"'){ if(line[i+1] === '"'){ cur += '"'; i++; } else q = false; }
+      else cur += ch;
+    }else{
+      if(ch === '"') q = true;
+      else if(ch === d){ out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+  }
+  out.push(cur);
+  return out.map(function(s){ return s.replace(/^﻿/,'').trim(); });
+}
+/* 은행 파일은 EUC-KR 인 경우가 많아, UTF-8 로 읽어 깨지면 다시 시도한다 */
+function readSmart(file, cb){
+  var r = new FileReader();
+  r.onload = function(){
+    var buf = r.result, t = '';
+    try{ t = new TextDecoder('utf-8').decode(buf); }catch(e){}
+    if(!t || t.indexOf('�') >= 0){
+      try{ t = new TextDecoder('euc-kr').decode(buf); }catch(e){}
+    }
+    cb((t||'').replace(/^﻿/,''));
+  };
+  r.onerror = function(){ toast('파일을 읽지 못했어요'); };
+  r.readAsArrayBuffer(file);
+}
+
+var HDR = {
+  date: /날짜|일자|거래일|거래일시|승인일|이용일|결제일|사용일|date/i,
+  desc: /내용|적요|가맹점|거래처|사용처|상호|메모|비고|摘要|desc|merchant/i,
+  amt:  /금액|amount/i,
+  inn:  /입금/,
+  out:  /출금|결제금액|승인금액|이용금액|사용금액/,
+  bal:  /잔액|balance/i,
+  type: /구분|유형|거래종류/
+};
+function looksDate(v){ return /(\d{4})[-./]?(\d{1,2})[-./]?(\d{1,2})/.test(String(v)); }
+function toISODate(v){
+  var m = String(v).match(/(\d{4})[-./]?(\d{1,2})[-./]?(\d{1,2})/);
+  if(!m) return null;
+  var y = +m[1], mo = +m[2], d = +m[3];
+  if(mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  return y+'-'+pad(mo)+'-'+pad(d);
+}
+function toNum(v){
+  var s = String(v).replace(/[^\d.\-]/g, '');
+  if(!s || s === '-' || s === '.') return null;
+  var n = Number(s);
+  return isNaN(n) ? null : n;
+}
+function sig(date, amount, desc){
+  var s = date+'|'+amount+'|'+String(desc).replace(/\s+/g,'');
+  var h = 5381;
+  for(var i=0;i<s.length;i++) h = ((h*33) ^ s.charCodeAt(i)) >>> 0;
+  return 'i'+h.toString(36);
+}
+
+/* 헤더와 첫 데이터 행을 보고 열 역할을 추측한다 */
+function analyze(text){
+  var lines = splitRows(text);
+  if(lines.length < 2) return null;
+  var d = guessDelim(lines[0]);
+  var table = lines.map(function(l){ return splitCells(l, d); });
+
+  /* 헤더로 보이는 첫 행 찾기 (날짜처럼 생긴 값이 없는 행) */
+  var hi = -1;
+  for(var i=0;i<Math.min(table.length,8);i++){
+    var row = table[i];
+    if(row.length < 2) continue;
+    var hasDate = row.some(looksDate);
+    var hitsHdr = row.some(function(c){ return HDR.date.test(c) || HDR.amt.test(c) || HDR.desc.test(c); });
+    if(!hasDate && hitsHdr){ hi = i; break; }
+  }
+  var header = hi >= 0 ? table[hi] : null;
+  var body = table.slice(hi >= 0 ? hi+1 : 0).filter(function(r){ return r.length >= 2 && r.some(looksDate); });
+  if(!body.length) return null;
+
+  var cols = Math.max.apply(null, body.map(function(r){ return r.length; }));
+  var map = { date:-1, desc:-1, amt:-1, inn:-1, out:-1, type:-1 };
+
+  if(header){
+    for(var c=0;c<header.length;c++){
+      var h = header[c];
+      if(map.date < 0 && HDR.date.test(h)) map.date = c;
+      else if(map.inn  < 0 && HDR.inn.test(h))  map.inn  = c;
+      else if(map.out  < 0 && HDR.out.test(h))  map.out  = c;
+      else if(map.amt  < 0 && HDR.amt.test(h) && !HDR.bal.test(h)) map.amt = c;
+      else if(map.desc < 0 && HDR.desc.test(h)) map.desc = c;
+      else if(map.type < 0 && HDR.type.test(h)) map.type = c;
+    }
+  }
+  /* 헤더로 못 찾은 건 내용으로 메운다 */
+  var probe = body[0];
+  if(map.date < 0) for(var c2=0;c2<cols;c2++){ if(looksDate(probe[c2])){ map.date = c2; break; } }
+  if(map.amt < 0 && map.inn < 0 && map.out < 0){
+    for(var c3=cols-1;c3>=0;c3--){
+      if(c3 === map.date) continue;
+      var isNum = body.slice(0,5).every(function(r){ return toNum(r[c3]) !== null; });
+      if(isNum && !(header && HDR.bal.test(header[c3]||''))){ map.amt = c3; break; }
+    }
+  }
+  if(map.desc < 0){
+    var best = -1, bestLen = 0;
+    for(var c4=0;c4<cols;c4++){
+      if(c4 === map.date || c4 === map.amt || c4 === map.inn || c4 === map.out) continue;
+      var avg = body.slice(0,8).reduce(function(s,r){ return s + String(r[c4]||'').length; }, 0);
+      var num = body.slice(0,5).every(function(r){ return toNum(r[c4]) !== null; });
+      if(!num && avg > bestLen){ bestLen = avg; best = c4; }
+    }
+    map.desc = best;
+  }
+  return { header:header, body:body, cols:cols, map:map };
+}
+
+/* 매핑에 따라 실제 기록 후보를 만든다 */
+function buildRows(an){
+  var m = an.map, out = [];
+  an.body.forEach(function(r){
+    var date = toISODate(r[m.date]);
+    if(!date) return;
+    var desc = (m.desc >= 0 ? String(r[m.desc]||'') : '').replace(/\s+/g,' ').trim() || '내역 없음';
+    var amt = null, income = false;
+    if(m.inn >= 0 || m.out >= 0){
+      var vi = m.inn >= 0 ? toNum(r[m.inn]) : null;
+      var vo = m.out >= 0 ? toNum(r[m.out]) : null;
+      if(vi){ amt = Math.abs(vi); income = true; }
+      else if(vo){ amt = Math.abs(vo); income = false; }
+    }else if(m.amt >= 0){
+      var v = toNum(r[m.amt]);
+      if(v === null) return;
+      amt = Math.abs(v);
+      income = v > 0;
+      if(m.type >= 0 && /입금|수입|받|\+/.test(String(r[m.type]))) income = true;
+      if(m.type >= 0 && /출금|지출|보|결제|승인/.test(String(r[m.type]))) income = false;
+    }
+    if(!amt || amt <= 0) return;
+    out.push({ date:date, desc:desc, amount:Math.round(amt), income:income,
+               sig: sig(date, Math.round(amt), desc) });
+  });
+  return out;
+}
+
+/* 가맹점 이름으로 기억해 둔 분류 규칙 */
+function ruleFor(desc){
+  for(var i=0;i<state.rules.length;i++){
+    if(desc.indexOf(state.rules[i].kw) >= 0) return state.rules[i];
+  }
+  return null;
+}
+function setRule(kw, kind){
+  if(!kw) return;
+  var hit = state.rules.filter(function(r){ return r.kw === kw; })[0];
+  if(kind === 'skip'){ state.rules = state.rules.filter(function(r){ return r.kw !== kw; }); }
+  else if(hit) hit.kind = kind;
+  else state.rules.push({ kw:kw, kind:kind });
+}
+
+/* --- 1단계: 붙여넣기 / 파일 --- */
+function sheetCsv(){
+  openSheet('거래내역 가져오기', '엑셀에서 복사해 붙여넣거나 CSV 파일을 고르세요',
+    '<div class="fld"><div class="stack">'+
+      '<button class="btn" type="button" id="csvPick">CSV 파일 고르기</button>'+
+      '<input type="file" id="csvFile" accept=".csv,.txt,text/csv,text/plain" hidden></div></div>'+
+    '<div class="fld"><label>또는 표를 그대로 붙여넣기</label>'+
+      '<textarea class="ta" id="csvTa" placeholder="날짜	내용	금액&#10;2026-08-14	스타벅스	-5600"></textarea></div>'+
+    '<div class="note">엑셀에서 머리글 줄까지 함께 선택해 복사하면 열을 더 정확히 알아냅니다. 엑셀 파일(.xlsx)은 <b>다른 이름으로 저장 → CSV</b> 로 바꾸거나, 열어서 복사해 붙여넣으세요.</div>',
+    function(){
+      var t = document.getElementById('csvTa').value.trim();
+      if(!t){ toast('내용을 붙여넣거나 파일을 고르세요'); return false; }
+      startReview(t);
+      return false;
+    }, '분석하기');
+
+  var fi = document.getElementById('csvFile');
+  document.getElementById('csvPick').onclick = function(){ fi.click(); };
+  fi.onchange = function(){
+    var f = fi.files && fi.files[0];
+    if(f) readSmart(f, function(txt){ startReview(txt); });
+  };
+}
+
+/* --- 2단계: 열 확인 + 분류 --- */
+function startReview(text){
+  var an = analyze(text);
+  if(!an){ toast('표를 알아보지 못했어요 — 날짜가 있는 줄이 필요합니다'); return; }
+
+  var rows = [], kinds = [];
+  function recompute(){
+    rows = buildRows(an);
+    kinds = rows.map(function(r){
+      var rl = ruleFor(r.desc);
+      if(rl) return rl.kind;
+      return r.income ? 'revenue' : 'consumption';
+    });
+  }
+  recompute();
+  if(!rows.length){ toast('가져올 줄을 찾지 못했어요 — 열 지정을 확인해 주세요'); }
+
+  var have = {};
+  state.txns.forEach(function(t){ if(t.sig) have[t.sig] = 1; });
+
+  function colOpts(sel){
+    var o = '<option value="-1">— 없음 —</option>';
+    for(var c=0;c<an.cols;c++){
+      var name = (an.header && an.header[c]) ? an.header[c] : (c+1)+'번째 열';
+      var sample = String((an.body[0]||[])[c] || '').slice(0,10);
+      o += '<option value="'+c+'"'+(c===sel?' selected':'')+'>'+esc(name)+(sample?' · '+esc(sample):'')+'</option>';
+    }
+    return o;
+  }
+
+  function paint(){
+    var dup = 0, tally = { revenue:0, cost:0, consumption:0, skip:0 };
+    var html = rows.map(function(r, i){
+      var k = kinds[i], isDup = !!have[r.sig];
+      if(isDup) dup++;
+      if(!isDup) tally[k]++;
+      return '<div class="irow'+(k==='skip'||isDup?' skip':'')+'">'+
+        '<span class="d">'+r.date.slice(5)+'</span>'+
+        '<span class="n" title="'+esc(r.desc)+'">'+esc(r.desc)+'</span>'+
+        '<span class="a">'+(r.income?'+':'−')+fmt(r.amount)+'</span>'+
+        (isDup
+          ? '<span class="d">이미 있음</span>'
+          : '<select data-i="'+i+'">'+
+            ['revenue','cost','consumption','skip'].map(function(kk){
+              return '<option value="'+kk+'"'+(kk===k?' selected':'')+'>'+(kk==='skip'?'제외':KIND[kk])+'</option>';
+            }).join('')+'</select>')+
+        '</div>';
+    }).join('');
+
+    document.getElementById('iTally').innerHTML =
+      '<b class="c-rev">수익 '+tally.revenue+'</b><b class="c-cost">경비 '+tally.cost+'</b>'+
+      '<b class="c-cons">소비 '+tally.consumption+'</b><b>제외 '+tally.skip+'</b>';
+    document.getElementById('iDupe').textContent =
+      dup ? '이미 있는 '+dup+'건은 자동으로 건너뜁니다' : '';
+    document.getElementById('iRows').innerHTML = html || '<div class="blank">가져올 줄이 없어요</div>';
+    document.getElementById('ok').textContent =
+      (tally.revenue + tally.cost + tally.consumption) + '건 가져오기';
+  }
+
+  openSheet('열을 확인하세요', rows.length + '줄을 찾았습니다',
+    '<div class="fld"><div class="maprow">'+
+      '<div class="f"><label>날짜</label><select id="mDate">'+colOpts(an.map.date)+'</select></div>'+
+      '<div class="f"><label>내용</label><select id="mDesc">'+colOpts(an.map.desc)+'</select></div>'+
+      '<div class="f"><label>금액</label><select id="mAmt">'+colOpts(an.map.amt)+'</select></div>'+
+      '<div class="f"><label>입금 (따로 있으면)</label><select id="mIn">'+colOpts(an.map.inn)+'</select></div>'+
+    '</div></div>'+
+    '<div class="tally" id="iTally"></div>'+
+    '<div class="dupe" id="iDupe"></div>'+
+    '<div class="irows" id="iRows"></div>'+
+    '<div class="note">종류를 바꾸면 같은 가맹점 줄이 함께 바뀌고, 그 규칙을 기억해 다음 가져오기에 자동 적용합니다.</div>',
+    function(){
+      var n = 0;
+      rows.forEach(function(r, i){
+        if(kinds[i] === 'skip' || have[r.sig]) return;
+        push({ date:r.date, kind:kinds[i], amount:r.amount,
+               category:r.desc.slice(0,24), memo:'', sig:r.sig });
+        n++;
+      });
+      if(!n){ toast('가져올 줄이 없어요'); return false; }
+      commit();
+      toast(n + '건 가져왔어요');
+    }, '가져오기');
+
+  paint();
+
+  ['mDate','mDesc','mAmt','mIn'].forEach(function(id){
+    document.getElementById(id).addEventListener('change', function(){
+      an.map.date = +document.getElementById('mDate').value;
+      an.map.desc = +document.getElementById('mDesc').value;
+      an.map.amt  = +document.getElementById('mAmt').value;
+      an.map.inn  = +document.getElementById('mIn').value;
+      if(an.map.inn >= 0 && an.map.out < 0) an.map.out = an.map.amt;
+      recompute(); paint();
+    });
+  });
+
+  document.getElementById('iRows').addEventListener('change', function(e){
+    var s = e.target.closest('select[data-i]'); if(!s) return;
+    var i = +s.dataset.i, k = s.value, kw = rows[i].desc;
+    rows.forEach(function(r, j){ if(r.desc === kw) kinds[j] = k; });
+    setRule(kw, k); save();
+    paint(); renderSettings();
+  });
+}
+
 /* ---------- 이벤트 ---------- */
 /* 화면 전환은 document 위임으로 — 요소 하나가 없어도 나머지가 죽지 않게 */
 document.addEventListener('click', function(e){
@@ -1175,6 +1526,12 @@ document.querySelector('.acts').addEventListener('click', function(e){
 });
 document.getElementById('addQ').onclick = function(){ sheetPreset(null); };
 document.getElementById('addS').onclick = function(){ sheetSub(null); };
+document.getElementById('csvBtn').onclick = sheetCsv;
+document.getElementById('ruleBox').addEventListener('click', function(e){
+  var b = e.target.closest('[data-ruledel]'); if(!b) return;
+  state.rules = state.rules.filter(function(r){ return r.kw !== b.dataset.ruledel; });
+  commit(); toast('규칙을 지웠어요');
+});
 
 document.getElementById('quickWrap').addEventListener('click', function(e){
   if(e.target.closest('[data-qadd]')) return sheetPreset(null);
@@ -1268,6 +1625,11 @@ function mergeState(p){
   (Array.isArray(p.presets) ? p.presets : []).forEach(function(x){
     if(!x || !x.id || qSeen[x.id] || !Array.isArray(x.lines) || !x.lines.length) return;
     state.presets.push(x); qSeen[x.id] = 1; n.q++;
+  });
+
+  (Array.isArray(p.rules) ? p.rules : []).forEach(function(r){
+    if(r && r.kw && KIND[r.kind] && !state.rules.some(function(x){ return x.kw === r.kw; }))
+      state.rules.push({ kw:r.kw, kind:r.kind });
   });
 
   if(p.cats) ['revenue','cost','consumption'].forEach(function(k){
