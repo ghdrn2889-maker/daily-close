@@ -294,7 +294,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v1.6</span></div>
+    <div class="brand">당일 마감 <span class="ver">v1.8</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -659,18 +659,15 @@ var state = (function(){
   if(!raw) return defaults();
   try{
     var p = JSON.parse(raw), c = baseCats();
-    (Array.isArray(p.rules) ? p.rules : []).forEach(function(r){
-    if(r && r.kw && KIND[r.kind] && !state.rules.some(function(x){ return x.kw === r.kw; }))
-      state.rules.push({ kw:r.kw, kind:r.kind });
-  });
-
-  if(p.cats) ['revenue','cost','consumption'].forEach(function(k){
+    if(p.cats) ['revenue','cost','consumption'].forEach(function(k){
       if(Array.isArray(p.cats[k]) && p.cats[k].length) c[k] = p.cats[k];
     });
     return { txns:       Array.isArray(p.txns)       ? p.txns       : [],
              presets:    Array.isArray(p.presets)    ? p.presets    : [],
              recurrings: Array.isArray(p.recurrings) ? p.recurrings : [],
-             rules:      Array.isArray(p.rules)      ? p.rules      : [],
+             rules: (Array.isArray(p.rules) ? p.rules : []).filter(function(r){
+               return r && typeof r.kw === 'string' && r.kw && typeof r.kind === 'string';
+             }),
              sync: Object.assign({ at:0, tip:true, error:'', errKind:'', count:0 }, p.sync || {}),
              cats: c, savedAt: p.savedAt || 0, exportedAt: p.exportedAt || 0 };
   }catch(e){
@@ -1488,6 +1485,16 @@ var HDR = {
   bal:  /잔액|balance/i,
   type: /구분|유형|거래종류/
 };
+/* 값이 다양할수록 쓸모 있는 열이다. 같은 말만 반복하는 열(적요)보다
+   가맹점 이름이 들어있는 열(내용)이 낫다. */
+function descScore(body, c){
+  var seen = {}, len = 0, m = Math.min(body.length, 20);
+  for(var i=0;i<m;i++){
+    var v = String(body[i][c] == null ? '' : body[i][c]).trim();
+    seen[v] = 1; len += v.length;
+  }
+  return Object.keys(seen).length * 1000 + len / (m || 1);
+}
 function looksDate(v){ return /(\d{4})[-./]?(\d{1,2})[-./]?(\d{1,2})/.test(String(v)); }
 function toISODate(v){
   var m = String(v).match(/(\d{4})[-./]?(\d{1,2})[-./]?(\d{1,2})/);
@@ -1619,6 +1626,7 @@ function analyze(text){
 
   var cols = Math.max.apply(null, body.map(function(r){ return r.length; }));
   var map = { date:-1, desc:-1, amt:-1, inn:-1, out:-1, type:-1 };
+  var descCands = [];
 
   if(header){
     for(var c=0;c<header.length;c++){
@@ -1627,8 +1635,18 @@ function analyze(text){
       else if(map.inn  < 0 && HDR.inn.test(h))  map.inn  = c;
       else if(map.out  < 0 && HDR.out.test(h))  map.out  = c;
       else if(map.amt  < 0 && HDR.amt.test(h) && !HDR.bal.test(h)) map.amt = c;
-      else if(map.desc < 0 && HDR.desc.test(h)) map.desc = c;
+      else if(HDR.desc.test(h)) descCands.push(c);
       else if(map.type < 0 && HDR.type.test(h)) map.type = c;
+    }
+    if(descCands.length){
+      map.desc = descCands.reduce(function(a, b){
+        return descScore(body, b) > descScore(body, a) ? b : a;
+      });
+      /* 고르지 않은 쪽이 구분 열 노릇을 한다 (적요: 체크카드 · ATM입금 …) */
+      if(map.type < 0){
+        var rest = descCands.filter(function(c2){ return c2 !== map.desc; });
+        if(rest.length) map.type = rest[0];
+      }
     }
   }
   /* 헤더로 못 찾은 건 내용으로 메운다 */
@@ -1680,6 +1698,17 @@ function buildRows(an){
                sig: sig(date, Math.round(amt), desc) });
   });
   return out;
+}
+
+/* 이체는 손익이 아니다. 돈이 주머니를 옮겼을 뿐이다.
+   - ATM 현금입금: 캐디 앱에서 이미 수익으로 잡은 돈을 통장에 넣은 것
+   - 카드대금 결제: 이미 소비로 잡은 결제들을 한꺼번에 갚는 것
+   둘 다 그대로 두면 같은 돈을 두 번 세게 된다. */
+var XFER_IN  = /ATM|CD기|현금\s*입금|무통장|자동입금기/i;
+var XFER_ANY = /카드\s*대금|카드값|청구\s*금액|결제대금|저금통|모으기|내\s*계좌|계좌\s*이동|잔액\s*이동/i;
+function looksTransfer(desc, income){
+  if(XFER_ANY.test(desc)) return true;
+  return !!income && XFER_IN.test(desc);
 }
 
 /* 가맹점 이름으로 기억해 둔 분류 규칙 */
@@ -1740,6 +1769,7 @@ function startReview(text){
     kinds = rows.map(function(r){
       var rl = ruleFor(r.desc);
       if(rl) return rl.kind;
+      if(looksTransfer(r.desc, r.income)) return 'skip';
       return r.income ? 'revenue' : 'consumption';
     });
   }
@@ -1760,10 +1790,11 @@ function startReview(text){
   }
 
   function paint(){
-    var dup = 0, tally = { revenue:0, cost:0, consumption:0, skip:0 };
+    var dup = 0, xfer = 0, tally = { revenue:0, cost:0, consumption:0, skip:0 };
     var html = rows.map(function(r, i){
       var k = kinds[i], isDup = !!have[r.sig];
       if(isDup) dup++;
+      else if(k === 'skip' && looksTransfer(r.desc, r.income)) xfer++;
       if(!isDup) tally[k]++;
       return '<div class="irow'+(k==='skip'||isDup?' skip':'')+'">'+
         '<span class="d">'+r.date.slice(5)+'</span>'+
@@ -1781,8 +1812,10 @@ function startReview(text){
     document.getElementById('iTally').innerHTML =
       '<b class="c-rev">수익 '+tally.revenue+'</b><b class="c-cost">경비 '+tally.cost+'</b>'+
       '<b class="c-cons">소비 '+tally.consumption+'</b><b>제외 '+tally.skip+'</b>';
-    document.getElementById('iDupe').textContent =
-      dup ? '이미 있는 '+dup+'건은 자동으로 건너뜁니다' : '';
+    var msg = [];
+    if(dup) msg.push('이미 있는 '+dup+'건은 자동으로 건너뜁니다');
+    if(xfer) msg.push('ATM 입금·카드대금 등 '+xfer+'건은 돈이 옮겨간 것이라 제외로 두었습니다 — 바꿀 수 있습니다');
+    document.getElementById('iDupe').textContent = msg.join(' · ');
     document.getElementById('iRows').innerHTML = html || '<div class="blank">가져올 줄이 없어요</div>';
     document.getElementById('ok').textContent =
       (tally.revenue + tally.cost + tally.consumption) + '건 가져오기';
