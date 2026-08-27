@@ -307,7 +307,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v1.4</span></div>
+    <div class="brand">당일 마감 <span class="ver">v1.5</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -455,10 +455,16 @@ select.inp{font-weight:600;appearance:none}
    ===================================================================== */
 var CADDIE_API   = 'https://ada-b850m-force.tail4c9a37.ts.net/api/work-income';
 var CADDIE_KEY   = 'caddieKey';
+var CADDIE_URL   = 'caddieApi';    /* 주소를 바꿨을 때만 들어있다 */
 var CADDIE_START = '2026-06-16';   /* 이 날부터 데이터가 있다 */
 var CADDIE_BACK  = 30;             /* 재동기화 시 소급 일수 — 정정분을 잡기 위해 */
 
 function caddieKey(){ try{ return localStorage.getItem(CADDIE_KEY) || ''; }catch(e){ return ''; } }
+function caddieApi(){ try{ return localStorage.getItem(CADDIE_URL) || CADDIE_API; }catch(e){ return CADDIE_API; } }
+function setCaddieApi(v){
+  try{ (v && v !== CADDIE_API) ? localStorage.setItem(CADDIE_URL, v) : localStorage.removeItem(CADDIE_URL); }catch(e){}
+}
+function hostOf(u){ try{ return new URL(u).host; }catch(e){ return u; } }
 function setCaddieKey(v){
   try{ v ? localStorage.setItem(CADDIE_KEY, v) : localStorage.removeItem(CADDIE_KEY); }catch(e){}
 }
@@ -467,7 +473,7 @@ function maskKey(k){ return k.length > 8 ? k.slice(0,3)+'…'+k.slice(-4) : '…
 async function fetchExternalIncome(fromISO, toISO){
   var key = caddieKey();
   if(!key) return null;
-  var url = new URL(CADDIE_API);
+  var url = new URL(caddieApi());
   if(fromISO) url.searchParams.set('from', fromISO);
   if(toISO)   url.searchParams.set('to', toISO);
   if(!state.sync.tip) url.searchParams.set('tip', '0');   /* 팁 제외로 받기 */
@@ -969,6 +975,7 @@ function renderReminder(){
 }
 
 /* ---------- 렌더: 설정 ---------- */
+var API_EDIT = false;
 function renderSettings(){
   var s = state.savedAt ? new Date(state.savedAt) : null;
   document.getElementById('dataStat').textContent =
@@ -981,7 +988,18 @@ function renderSettings(){
     : '백업한 적 없음';
 
   /* 캐디 앱 연동 */
-  var ck = caddieKey(), sy = state.sync;
+  var ck = caddieKey(), sy = state.sync, api = caddieApi();
+  var apiRow = API_EDIT
+    ? '<div class="fld" style="padding-bottom:4px"><label for="apiIn">서버 주소</label>'+
+        '<input class="inp" type="url" id="apiIn" value="'+esc(api)+'" '+
+        'placeholder="https://…/api/work-income" autocomplete="off" '+
+        'autocapitalize="off" autocorrect="off" spellcheck="false"></div>'+
+      '<div class="pad" style="display:flex;gap:8px">'+
+        '<button class="btn" data-apicancel style="flex:1">취소</button>'+
+        '<button class="btn pri" id="apiSave" style="flex:1">저장</button></div>'+
+      '<div class="note" style="padding-top:0">비워두고 저장하면 처음 주소로 돌아갑니다.</div>'
+    : '<div class="srow"><span class="nm">서버 주소<small>'+esc(hostOf(api))+'</small></span>'+
+        '<button class="btn sm" data-apiedit>바꾸기</button></div>';
   document.getElementById('syncStat').textContent =
     sy.error ? sy.error
     : sy.at ? (function(){ var d = new Date(sy.at);
@@ -997,9 +1015,11 @@ function renderSettings(){
       '<div class="pad"><button class="btn pri" id="syncNow">지금 가져오기</button></div>'+
       (sy.errKind === 'net'
         ? '<div class="warn" style="margin:0 20px 14px">캐디 앱 서버에 닿지 못했습니다. '+
-          '폰에서 <b>Tailscale(VPN)이 켜져 있으면</b> 브라우저가 사설망 접근으로 보고 막을 수 있습니다. '+
-          '한 번 꺼보고 다시 시도해 주세요.</div>'
+          '서버가 켜져 있는지 확인해 주세요. 계속 안 되면 지금 주소(<b>'+esc(hostOf(api))+
+          '</b>)가 <b>사설망 주소</b>라서 브라우저가 막는 경우입니다 — '+
+          '캐디 앱에서 공개 주소를 받아 아래 <b>서버 주소</b>를 바꿔주세요.</div>'
         : '')+
+      apiRow+
       '<div class="note" style="padding-top:0">앱을 열 때 자동으로 받아옵니다. 가져온 근무는 '+
         '<b>캐디 앱</b> 표시가 붙고, 캐디 앱에서 고치면 다음 동기화 때 따라 바뀝니다. '+
         '직접 넣은 기록은 건드리지 않습니다.</div>'
@@ -1007,6 +1027,7 @@ function renderSettings(){
         '<input class="inp" type="password" id="ckIn" placeholder="wi_…" autocomplete="off" '+
         'autocapitalize="off" autocorrect="off" spellcheck="false"></div>'+
       '<div class="pad"><button class="btn pri" id="ckSave">연결하기</button></div>'+
+      apiRow+
       '<div class="note" style="padding-top:0">열쇠는 이 기기 안에만 저장되며 '+
         '<b>백업 파일에도 들어가지 않습니다.</b> 캐디 앱에서 발급받아 붙여넣으세요.</div>';
 
@@ -1778,6 +1799,21 @@ document.getElementById('syncBox').addEventListener('click', function(e){
     state.sync.tip = !state.sync.tip; commit();
     toast(state.sync.tip ? '팁을 포함해 받습니다' : '캐디피만 받습니다');
     syncCaddie(true); return;
+  }
+  if(e.target.closest('[data-apiedit]')){ API_EDIT = true; renderSettings(); return; }
+  if(e.target.closest('[data-apicancel]')){ API_EDIT = false; renderSettings(); return; }
+  if(e.target.closest('#apiSave')){
+    var a = document.getElementById('apiIn').value.trim();
+    if(a){
+      var ok = false;
+      try{ ok = new URL(a).protocol === 'https:'; }catch(_){}
+      if(!ok){ toast('https:// 로 시작하는 주소를 넣어주세요'); return; }
+    }
+    setCaddieApi(a); API_EDIT = false;
+    state.sync.error = ''; state.sync.errKind = ''; state.sync.at = 0;
+    commit(); toast(a ? '서버 주소를 바꿨어요' : '처음 주소로 되돌렸어요');
+    if(caddieKey()) syncCaddie(false);
+    return;
   }
   if(e.target.closest('#syncNow')) syncCaddie(false);
 });
