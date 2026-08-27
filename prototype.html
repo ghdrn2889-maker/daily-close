@@ -294,7 +294,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v1.3</span></div>
+    <div class="brand">당일 마감 <span class="ver">v1.4</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -525,11 +525,13 @@ async function syncCaddie(silent){
   syncing = false;
 
   if(list === null){
-    var msg = (err && err.code === 401)
-      ? '열쇠를 확인해주세요'
-      : '캐디 앱 연결이 끊겼습니다';
-    state.sync.error = msg; save(); renderSettings();
-    if(!silent) toast(msg);
+    /* 401 은 열쇠 문제, 그 외는 요청이 아예 못 나간 것.
+       후자는 브라우저가 막는 경우가 흔하다(사설망 접근 차단 등). */
+    var is401 = !!(err && err.code === 401);
+    state.sync.errKind = is401 ? '401' : 'net';
+    state.sync.error = is401 ? '열쇠를 확인해주세요' : '연결하지 못했어요';
+    save(); renderSettings();
+    if(!silent) toast(state.sync.error);
     return;
   }
 
@@ -565,7 +567,7 @@ function baseCats(){ return {
   consumption: ['식사','생활용품','의류','문화','기타']
 }; }
 function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats(), rules:[],
-  sync:{ at:0, tip:true, error:'', count:0 } }; }
+  sync:{ at:0, tip:true, error:'', errKind:'', count:0 } }; }
 
 var LOAD_ERROR = false;
 var state = (function(){
@@ -586,7 +588,7 @@ var state = (function(){
              presets:    Array.isArray(p.presets)    ? p.presets    : [],
              recurrings: Array.isArray(p.recurrings) ? p.recurrings : [],
              rules:      Array.isArray(p.rules)      ? p.rules      : [],
-             sync: Object.assign({ at:0, tip:true, error:'', count:0 }, p.sync || {}),
+             sync: Object.assign({ at:0, tip:true, error:'', errKind:'', count:0 }, p.sync || {}),
              cats: c, savedAt: p.savedAt || 0, exportedAt: p.exportedAt || 0 };
   }catch(e){
     /* 읽기 실패 — 절대 덮어쓰지 않는다. 원본을 따로 보존하고 알린다. */
@@ -980,6 +982,11 @@ function renderSettings(){
         '<button class="sw" role="switch" aria-checked="'+(sy.tip?'true':'false')+
           '" data-tiptgl aria-label="팁 포함"></button></div>'+
       '<div class="pad"><button class="btn pri" id="syncNow">지금 가져오기</button></div>'+
+      (sy.errKind === 'net'
+        ? '<div class="warn" style="margin:0 20px 14px">캐디 앱 서버에 닿지 못했습니다. '+
+          '폰에서 <b>Tailscale(VPN)이 켜져 있으면</b> 브라우저가 사설망 접근으로 보고 막을 수 있습니다. '+
+          '한 번 꺼보고 다시 시도해 주세요.</div>'
+        : '')+
       '<div class="note" style="padding-top:0">앱을 열 때 자동으로 받아옵니다. 가져온 근무는 '+
         '<b>캐디 앱</b> 표시가 붙고, 캐디 앱에서 고치면 다음 동기화 때 따라 바뀝니다. '+
         '직접 넣은 기록은 건드리지 않습니다.</div>'
