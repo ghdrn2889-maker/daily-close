@@ -309,7 +309,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v1.9</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.0</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -1614,12 +1614,16 @@ function parseSms(block){
     .replace(/[\d,]{2,}\s*원/g, ' ')
     .replace(/입금|출금|승인|이체|결제|일시불|할부|취소|환불|카드|체크/g, ' '));
 
+  /* 이체를 가리키는 말은 상투어 필터에 지워지기 전에 붙잡아 둔다 */
+  var xfer = joined.match(/ATM\s*현금\s*입금|현금\s*입금|ATM\s*입금|무통장\s*입금|ATM|CD기|무통장|카드\s*대금|카드값|결제\s*대금/);
+
   var cancel = /취소|환불/.test(joined);
   var income = cancel || (/입금|급여|환급|이자/.test(joined) && !/출금/.test(joined));
 
   /* 입금 문자는 금액 줄 쪽이 훨씬 정확하다 (예: "급여 입금 2,800,000원" → 급여) */
   var desc = (income && fromAmt) ? fromAmt : (fromLine || fromAmt);
   if(!desc) desc = income ? '입금' : '카드 결제';
+  if(xfer) desc = xfer[0].replace(/\s+/g, ' ');
   if(cancel) desc = '[취소] ' + desc;
 
   return { date:date, desc:desc, amount:Math.round(amount), income:income,
@@ -1801,6 +1805,7 @@ function startReview(text){
     kinds = rows.map(function(r){
       var rl = ruleFor(r.desc);
       if(rl) return rl.kind;
+      if(r.desc.indexOf('[취소]') === 0) return 'skip';
       if(looksTransfer(r.desc, r.income)) return 'skip';
       return r.income ? 'revenue' : 'consumption';
     });
@@ -1822,10 +1827,11 @@ function startReview(text){
   }
 
   function paint(){
-    var dup = 0, xfer = 0, tally = { revenue:0, cost:0, consumption:0, skip:0 };
+    var dup = 0, xfer = 0, canc = 0, tally = { revenue:0, cost:0, consumption:0, skip:0 };
     var html = rows.map(function(r, i){
       var k = kinds[i], isDup = !!have[r.sig];
       if(isDup) dup++;
+      else if(k === 'skip' && r.desc.indexOf('[취소]') === 0) canc++;
       else if(k === 'skip' && looksTransfer(r.desc, r.income)) xfer++;
       if(!isDup) tally[k]++;
       return '<div class="irow'+(k==='skip'||isDup?' skip':'')+'">'+
@@ -1847,6 +1853,7 @@ function startReview(text){
     var msg = [];
     if(dup) msg.push('이미 있는 '+dup+'건은 자동으로 건너뜁니다');
     if(xfer) msg.push('ATM 입금·카드대금 등 '+xfer+'건은 돈이 옮겨간 것이라 제외로 두었습니다 — 바꿀 수 있습니다');
+    if(canc) msg.push('취소·환불 '+canc+'건도 제외입니다 — 원래 결제 기록을 지우는 편이 맞습니다');
     document.getElementById('iDupe').textContent = msg.join(' · ');
     document.getElementById('iRows').innerHTML = html || '<div class="blank">가져올 줄이 없어요</div>';
     document.getElementById('ok').textContent =
