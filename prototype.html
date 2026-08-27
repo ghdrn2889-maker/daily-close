@@ -64,6 +64,10 @@ button{cursor:pointer}
 .irow select{background:var(--sunk);border:0;border-radius:9px;padding:7px 6px;font-size:12.5px;
   font-weight:700;appearance:none;width:100%;text-align:center}
 .irow.skip{opacity:.4}
+.irow.near{background:var(--warnbg,#FFF7E6);border-radius:10px;
+  box-shadow:inset 2px 0 0 var(--warnbar,#E0A100)}
+.irow .n em{display:block;font-style:normal;font-size:10.5px;font-weight:600;
+  color:var(--warnbar,#E0A100);letter-spacing:-.01em}
 .dupe{font-size:12px;color:var(--faint);padding:10px 22px 0;font-weight:600}
 
 /* ---------- 상단 네비게이션 ---------- */
@@ -294,7 +298,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.0</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.1</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -1798,8 +1802,12 @@ function startReview(text){
   recompute();
   if(!rows.length){ toast('가져올 줄을 찾지 못했어요 — 열 지정을 확인해 주세요'); }
 
-  var have = {};
-  state.txns.forEach(function(t){ if(t.sig) have[t.sig] = 1; });
+  var have = {}, sameAmt = {};
+  state.txns.forEach(function(t){
+    if(t.sig) have[t.sig] = 1;
+    var k = t.date+'|'+t.amount;
+    if(!sameAmt[k]) sameAmt[k] = (t.memo || t.category || '기록');
+  });
 
   function colOpts(sel){
     var o = '<option value="-1">— 없음 —</option>';
@@ -1812,16 +1820,20 @@ function startReview(text){
   }
 
   function paint(){
-    var dup = 0, xfer = 0, canc = 0, tally = { revenue:0, cost:0, consumption:0, skip:0 };
+    var dup = 0, xfer = 0, canc = 0, maybe = 0, tally = { revenue:0, cost:0, consumption:0, skip:0 };
     var html = rows.map(function(r, i){
       var k = kinds[i], isDup = !!have[r.sig];
+      /* 내용은 달라도 같은 날 같은 금액이면 같은 결제일 수 있다 */
+      var near = !isDup ? sameAmt[r.date+'|'+r.amount] : null;
+      if(near) maybe++;
       if(isDup) dup++;
       else if(k === 'skip' && r.desc.indexOf('[취소]') === 0) canc++;
       else if(k === 'skip' && looksTransfer(r.desc, r.income)) xfer++;
       if(!isDup) tally[k]++;
-      return '<div class="irow'+(k==='skip'||isDup?' skip':'')+'">'+
+      return '<div class="irow'+(k==='skip'||isDup?' skip':'')+(near?' near':'')+'">'+
         '<span class="d">'+r.date.slice(5)+'</span>'+
-        '<span class="n" title="'+esc(r.desc)+'">'+esc(r.desc)+'</span>'+
+        '<span class="n" title="'+esc(r.desc)+'">'+esc(r.desc)+
+          (near ? '<em>같은 날 같은 금액 · '+esc(String(near).slice(0,16))+'</em>' : '')+'</span>'+
         '<span class="a">'+(r.income?'+':'−')+fmt(r.amount)+'</span>'+
         (isDup
           ? '<span class="d">이미 있음</span>'
@@ -1839,6 +1851,7 @@ function startReview(text){
     if(dup) msg.push('이미 있는 '+dup+'건은 자동으로 건너뜁니다');
     if(xfer) msg.push('ATM 입금·카드대금 등 '+xfer+'건은 돈이 옮겨간 것이라 제외로 두었습니다 — 바꿀 수 있습니다');
     if(canc) msg.push('취소·환불 '+canc+'건도 제외입니다 — 원래 결제 기록을 지우는 편이 맞습니다');
+    if(maybe) msg.push('노란 줄 '+maybe+'건은 이미 있는 기록과 날짜·금액이 같습니다 — 같은 결제면 제외로 바꿔주세요');
     document.getElementById('iDupe').textContent = msg.join(' · ');
     document.getElementById('iRows').innerHTML = html || '<div class="blank">가져올 줄이 없어요</div>';
     document.getElementById('ok').textContent =
