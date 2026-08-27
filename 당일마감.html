@@ -307,7 +307,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v1.2</span></div>
+    <div class="brand">당일 마감 <span class="ver">v1.3</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -414,13 +414,8 @@ select.inp{font-weight:600;appearance:none}
     </div>
 
     <div class="card">
-      <div class="chd"><span class="t">외부 연동</span></div>
-      <div class="note">
-        다른 앱에서 수익 기록을 자동으로 받아올 수 있습니다. 그쪽에서
-        <code>{ date, count, amount }</code> 세 필드만 내주면
-        <code>fetchExternalIncome()</code> 함수 한 곳만 교체하면 됩니다.
-        연결 전까지는 직접 기록하는 방식으로 동작합니다.
-      </div>
+      <div class="chd"><span class="t">캐디 앱 연동</span><span class="s" id="syncStat"></span></div>
+      <div id="syncBox"></div>
     </div>
 
     <div class="card">
@@ -448,15 +443,123 @@ select.inp{font-weight:600;appearance:none}
 'use strict';
 
 /* =====================================================================
-   외부 연동 지점 (SEAM)
+   캐디 앱 연동
    ---------------------------------------------------------------------
-   이 앱이 외부 시스템에 대해 아는 것은 아래 3개 필드가 전부다.
-       fetchExternalIncome(fromISO, toISO) -> [{ date, count, amount }]
-   외부 앱/DB에 읽기전용 뷰를 만든 뒤 이 함수만 교체하면 수익이
-   자동으로 흘러들어온다. 나머지 코드는 손댈 필요가 없다.
-   null 을 반환하면 '직접 기록 모드'로 동작한다.
+   읽기 전용 창구 하나만 본다. 계약은 세 필드가 전부다.
+       GET /api/work-income?from=&to=  ->  [{ date, count, amount }]
+   날짜별 합산이고, 0원인 날은 아예 오지 않는다.
+
+   열쇠는 사용자가 캐디 앱에서 발급해 붙여넣는다.
+   이 저장소는 공개이므로 열쇠를 코드·설정·백업 어디에도 남기지 않는다.
+   state 와 분리된 localStorage 항목에만 두므로 내보내기 JSON 에도 안 실린다.
    ===================================================================== */
-async function fetchExternalIncome(/* fromISO, toISO */){ return null; }
+var CADDIE_API   = 'https://ada-b850m-force.tail4c9a37.ts.net/api/work-income';
+var CADDIE_KEY   = 'caddieKey';
+var CADDIE_START = '2026-06-16';   /* 이 날부터 데이터가 있다 */
+var CADDIE_BACK  = 30;             /* 재동기화 시 소급 일수 — 정정분을 잡기 위해 */
+
+function caddieKey(){ try{ return localStorage.getItem(CADDIE_KEY) || ''; }catch(e){ return ''; } }
+function setCaddieKey(v){
+  try{ v ? localStorage.setItem(CADDIE_KEY, v) : localStorage.removeItem(CADDIE_KEY); }catch(e){}
+}
+function maskKey(k){ return k.length > 8 ? k.slice(0,3)+'…'+k.slice(-4) : '…'+k.slice(-4); }
+
+async function fetchExternalIncome(fromISO, toISO){
+  var key = caddieKey();
+  if(!key) return null;
+  var url = new URL(CADDIE_API);
+  if(fromISO) url.searchParams.set('from', fromISO);
+  if(toISO)   url.searchParams.set('to', toISO);
+  if(!state.sync.tip) url.searchParams.set('tip', '0');   /* 팁 제외로 받기 */
+  var res = await fetch(url, { headers: { Authorization: 'Bearer ' + key } });
+  if(!res.ok){ var e = new Error('http'); e.code = res.status; throw e; }
+  return res.json();
+}
+
+/* 받아온 날짜 구간을 그대로 맞춘다.
+   - 새 날짜는 추가, 금액·라운드가 바뀐 날은 갱신
+   - 구간 안인데 응답에 없는 날은 취소된 것이므로 지운다
+   손으로 넣은 기록(ext 없음)은 절대 건드리지 않는다. */
+function applyCaddie(list, from, to){
+  var byDate = {}, seen = {};
+  (list||[]).forEach(function(r){
+    if(!r || !/^\d{4}-\d{2}-\d{2}$/.test(r.date)) return;
+    if(typeof r.amount !== 'number' || !(r.amount > 0)) return;
+    byDate[r.date] = r;
+  });
+
+  var added = 0, updated = 0, removed = 0, keep = [];
+  state.txns.forEach(function(t){
+    if(t.ext !== 'caddie' || t.date < from || t.date > to){ keep.push(t); return; }
+    var r = byDate[t.date];
+    if(!r){ removed++; return; }
+    var memo = '캐디 앱 · ' + (r.count || 1) + '부';
+    if(t.amount !== Math.round(r.amount) || t.memo !== memo){
+      t.amount = Math.round(r.amount); t.rounds = r.count; t.memo = memo;
+      updated++;
+    }
+    seen[t.date] = 1;
+    keep.push(t);
+  });
+  state.txns = keep;
+
+  Object.keys(byDate).forEach(function(d){
+    if(seen[d]) return;
+    var r = byDate[d];
+    push({ date:d, kind:'revenue', amount:Math.round(r.amount), category:'캐디피',
+           memo:'캐디 앱 · ' + (r.count || 1) + '부', rounds:r.count, ext:'caddie' });
+    added++;
+  });
+
+  state.txns.sort(function(a,b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  return { added:added, updated:updated, removed:removed };
+}
+
+var syncing = false;
+async function syncCaddie(silent){
+  if(syncing) return;
+  if(!caddieKey()){ if(!silent) toast('먼저 열쇠를 넣어주세요'); return; }
+  syncing = true;
+  if(!silent) toast('가져오는 중…');
+
+  /* 처음이면 전체, 이후엔 최근 구간만 (정정분을 잡을 만큼 소급) */
+  var from = CADDIE_START;
+  if(state.sync.at){
+    var d = new Date(); d.setDate(d.getDate() - CADDIE_BACK);
+    from = iso(d);
+    if(from < CADDIE_START) from = CADDIE_START;
+  }
+  var to = TODAY, list = null, err = null;
+
+  for(var i=0;i<2 && list===null;i++){
+    try{ list = await fetchExternalIncome(from, to); }
+    catch(e){ err = e; if(e && e.code === 401) break; }
+  }
+  syncing = false;
+
+  if(list === null){
+    var msg = (err && err.code === 401)
+      ? '열쇠를 확인해주세요'
+      : '캐디 앱 연결이 끊겼습니다';
+    state.sync.error = msg; save(); renderSettings();
+    if(!silent) toast(msg);
+    return;
+  }
+
+  var n = applyCaddie(list, from, to);
+  state.sync.at = Date.now();
+  state.sync.error = '';
+  state.sync.count = state.txns.filter(function(t){ return t.ext === 'caddie'; }).length;
+  commit();
+
+  if(!silent || n.added || n.updated || n.removed){
+    var parts = [];
+    if(n.added)   parts.push(n.added + '건 추가');
+    if(n.updated) parts.push(n.updated + '건 갱신');
+    if(n.removed) parts.push(n.removed + '건 삭제');
+    toast(parts.length ? parts.join(' · ') : '새로운 근무가 없어요');
+  }
+}
 
 /* 조용히 죽지 않도록 — 오류가 나면 화면에 띄운다 */
 window.addEventListener('error', function(ev){
@@ -474,7 +577,8 @@ function baseCats(){ return {
   cost:        ['교통비','재료비','장비','수수료','식사','기타'],
   consumption: ['식사','생활용품','의류','문화','기타']
 }; }
-function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats(), rules:[] }; }
+function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats(), rules:[],
+  sync:{ at:0, tip:true, error:'', count:0 } }; }
 
 var LOAD_ERROR = false;
 var state = (function(){
@@ -495,6 +599,7 @@ var state = (function(){
              presets:    Array.isArray(p.presets)    ? p.presets    : [],
              recurrings: Array.isArray(p.recurrings) ? p.recurrings : [],
              rules:      Array.isArray(p.rules)      ? p.rules      : [],
+             sync: Object.assign({ at:0, tip:true, error:'', count:0 }, p.sync || {}),
              cats: c, savedAt: p.savedAt || 0, exportedAt: p.exportedAt || 0 };
   }catch(e){
     /* 읽기 실패 — 절대 덮어쓰지 않는다. 원본을 따로 보존하고 알린다. */
@@ -872,6 +977,31 @@ function renderSettings(){
   document.getElementById('bkStat').textContent = ex
     ? '마지막 백업 '+(ex.getMonth()+1)+'/'+ex.getDate()
     : '백업한 적 없음';
+
+  /* 캐디 앱 연동 */
+  var ck = caddieKey(), sy = state.sync;
+  document.getElementById('syncStat').textContent =
+    sy.error ? sy.error
+    : sy.at ? (function(){ var d = new Date(sy.at);
+        return (d.getMonth()+1)+'/'+d.getDate()+' '+pad(d.getHours())+':'+pad(d.getMinutes())+' 동기화'; })()
+    : (ck ? '아직 안 받음' : '');
+  document.getElementById('syncBox').innerHTML = ck
+    ? '<div class="srow"><span class="nm">열쇠<small>'+esc(maskKey(ck))+'</small></span>'+
+        '<button class="btn sm" data-keydel>지우기</button></div>'+
+      '<div class="srow"><span class="nm">팁 포함<small>'+
+        (sy.tip ? '캐디피 + 팁을 함께 받습니다' : '캐디피만 받습니다')+'</small></span>'+
+        '<button class="sw" role="switch" aria-checked="'+(sy.tip?'true':'false')+
+          '" data-tiptgl aria-label="팁 포함"></button></div>'+
+      '<div class="pad"><button class="btn pri" id="syncNow">지금 가져오기</button></div>'+
+      '<div class="note" style="padding-top:0">앱을 열 때 자동으로 받아옵니다. 가져온 근무는 '+
+        '<b>캐디 앱</b> 표시가 붙고, 캐디 앱에서 고치면 다음 동기화 때 따라 바뀝니다. '+
+        '직접 넣은 기록은 건드리지 않습니다.</div>'
+    : '<div class="fld" style="padding-bottom:4px"><label for="ckIn">캐디 앱에서 발급한 열쇠</label>'+
+        '<input class="inp" type="password" id="ckIn" placeholder="wi_…" autocomplete="off" '+
+        'autocapitalize="off" autocorrect="off" spellcheck="false"></div>'+
+      '<div class="pad"><button class="btn pri" id="ckSave">연결하기</button></div>'+
+      '<div class="note" style="padding-top:0">열쇠는 이 기기 안에만 저장되며 '+
+        '<b>백업 파일에도 들어가지 않습니다.</b> 캐디 앱에서 발급받아 붙여넣으세요.</div>';
 
   document.getElementById('ruleBox').innerHTML = state.rules.length
     ? '<div class="catgrp" style="padding-bottom:6px"><div class="h">기억한 분류 ' + state.rules.length + '개</div>'+
@@ -1627,6 +1757,23 @@ document.querySelector('.acts').addEventListener('click', function(e){
 document.getElementById('addQ').onclick = function(){ sheetPreset(null); };
 document.getElementById('addS').onclick = function(){ sheetSub(null); };
 document.getElementById('csvBtn').onclick = sheetCsv;
+document.getElementById('syncBox').addEventListener('click', function(e){
+  if(e.target.closest('#ckSave')){
+    var v = document.getElementById('ckIn').value.trim();
+    if(!v){ toast('열쇠를 붙여넣어 주세요'); return; }
+    setCaddieKey(v); renderSettings(); syncCaddie(false); return;
+  }
+  if(e.target.closest('[data-keydel]')){
+    setCaddieKey(''); state.sync.at = 0; state.sync.error = '';
+    commit(); toast('열쇠를 지웠어요'); return;
+  }
+  if(e.target.closest('[data-tiptgl]')){
+    state.sync.tip = !state.sync.tip; commit();
+    toast(state.sync.tip ? '팁을 포함해 받습니다' : '캐디피만 받습니다');
+    syncCaddie(true); return;
+  }
+  if(e.target.closest('#syncNow')) syncCaddie(false);
+});
 document.getElementById('ruleBox').addEventListener('click', function(e){
   var b = e.target.closest('[data-ruledel]'); if(!b) return;
   state.rules = state.rules.filter(function(r){ return r.kw !== b.dataset.ruledel; });
@@ -1790,6 +1937,11 @@ document.getElementById('rstBtn').onclick = function(){
 if(!STORAGE_OK) document.getElementById('warn').hidden = false;
 if(LOAD_ERROR) document.getElementById('recover').hidden = false;
 render();
+
+/* 앱을 열 때 조용히 최신 근무를 받아온다 (1시간에 한 번까지) */
+if(caddieKey() && Date.now() - (state.sync.at || 0) > 3600000){
+  setTimeout(function(){ syncCaddie(true); }, 800);
+}
 
 /* 공유로 들어온 문자 처리 — 안드로이드에서 결제 문자를 공유하면 여기로 온다.
    manifest 의 share_target 이 ?text=... 형태로 넘겨준다. */
