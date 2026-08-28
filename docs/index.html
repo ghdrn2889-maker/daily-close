@@ -154,6 +154,10 @@ button{cursor:pointer}
 .qbtn .qn{font-size:13.5px;font-weight:700;letter-spacing:-.03em}
 .qbtn .qs{font-size:12px;color:var(--faint);margin-top:2px;font-weight:600}
 .qbtn:active{background:var(--line-2)}
+.lnk{display:block;width:100%;margin-top:10px;padding:11px;border:0;border-radius:11px;
+  background:var(--sunk);color:var(--muted);font-family:inherit;font-size:12.5px;
+  font-weight:700;letter-spacing:-.02em}
+.lnk:active{background:var(--line-2)}
 .qadd{color:var(--muted);font-size:13.5px;font-weight:600;display:grid;place-items:center}
 
 /* ---------- entries ---------- */
@@ -225,6 +229,7 @@ button{cursor:pointer}
 .srow .nm small{display:block;font-size:12px;color:var(--faint);font-weight:500;margin-top:3px}
 .srow .amt{margin-left:auto;font-size:15px;font-weight:700;letter-spacing:-.035em}
 .srow.off{opacity:.38}
+.srow .go{color:var(--faint);font-size:17px;line-height:1;margin-left:-5px}
 .sw{width:42px;height:25px;border-radius:99px;background:var(--line-2);border:0;flex:none;
   position:relative;transition:background .18s}
 .sw::after{content:"";position:absolute;top:3px;left:3px;width:19px;height:19px;border-radius:50%;
@@ -318,7 +323,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.2</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.3</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -1174,9 +1179,10 @@ function renderSettings(){
     ? state.presets.map(function(p){
         var net = presetNet(p), sv = presetSave(p);
         return '<button class="srow" data-qedit="'+p.id+'">'+
-          '<span class="nm">'+esc(p.name)+'<small>'+p.lines.length+'개 항목</small></span>'+
+          '<span class="nm">'+esc(p.name)+'<small>'+p.lines.length+'개 항목 · 눌러서 수정</small></span>'+
           '<span class="amt '+cls(net)+'">'+(net||!sv?signed(net):'')+
-            (sv?(net?' ':'')+'→'+fmt(sv):'')+'</span></button>';
+            (sv?(net?' ':'')+'→'+fmt(sv):'')+'</span>'+
+          '<span class="go" aria-hidden="true">›</span></button>';
       }).join('')
     : '<div class="blank">아직 만든 묶음이 없어요</div>';
 
@@ -1370,7 +1376,8 @@ function sheetRunPreset(id){
         '<span style="font-size:13px;font-weight:700;color:var(--muted)">'+KIND[l.kind]+'</span>'+
         '<span style="font-size:14px;font-weight:600">'+esc(l.category)+'</span>'+
         '<input class="inp" type="text" id="pl'+i+'" inputmode="numeric" autocomplete="off"></div>';
-    }).join('') + '</div></div>',
+    }).join('') + '</div>'+
+    '<button type="button" class="lnk" id="pEdit">이 묶음 수정 · 삭제</button></div>',
     function(){
       var any = 0;
       p.lines.forEach(function(l,i){
@@ -1384,6 +1391,7 @@ function sheetRunPreset(id){
     var el = document.getElementById('pl'+i);
     setAmt('pl'+i, l.amount); bindAmount(el);
   });
+  document.getElementById('pEdit').onclick = function(){ sheetPreset(id); };
 }
 
 /* ---------- 빠른 기록 편집 ---------- */
@@ -1435,10 +1443,22 @@ function sheetPreset(id){
     if(!lines.length) lines.push({kind:'revenue',category:'',amount:0});
     paint();
   });
-  if(p) document.getElementById('pDel').onclick = function(){
-    state.presets = state.presets.filter(function(x){ return x.id !== p.id; });
-    commit(); closeSheet();
-  };
+  if(p){
+    var armed = false, del = document.getElementById('pDel');
+    del.onclick = function(){
+      if(!armed){
+        armed = true;
+        del.textContent = '한 번 더 누르면 삭제됩니다';
+        setTimeout(function(){
+          if(!armed || !del.isConnected) return;
+          armed = false; del.textContent = '이 묶음 삭제';
+        }, 4000);
+        return;
+      }
+      state.presets = state.presets.filter(function(x){ return x.id !== p.id; });
+      commit(); closeSheet(); toast(p.name+' 묶음을 지웠어요');
+    };
+  }
 }
 
 /* ---------- 구독 추가 / 수정 ---------- */
