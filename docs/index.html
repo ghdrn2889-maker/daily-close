@@ -388,9 +388,20 @@ select.inp{font-weight:600;appearance:none}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 /* ---------- 종이 ---------- */
 .paper{display:none}
+.paper.show{display:block;position:fixed;inset:0;z-index:60;background:#fff;
+  overflow-y:auto;padding:26px 20px 190px}
+.pvbar{display:none}
+.pvbar.show{display:block;position:fixed;left:0;right:0;bottom:0;z-index:61;
+  background:var(--card);border-top:1px solid var(--line-2);padding:14px 20px 18px;
+  box-shadow:0 -8px 24px rgba(0,0,0,.10)}
+.pvbar .pvh{font-size:14px;font-weight:700;letter-spacing:-.03em}
+.pvbar .pvn{font-size:12px;color:var(--muted);font-weight:600;margin-top:5px;line-height:1.5}
+.pvbar .pvn b{color:var(--ink);font-weight:700}
+.pvbar .pvb{display:grid;grid-template-columns:1fr 1.6fr;gap:9px;margin-top:12px}
+.pvbar .pvb .btn{padding:15px 10px}
 @media print{
-  .app,.scrim,.toast{display:none !important}
-  .paper{display:block}
+  .app,.scrim,.toast,.pvbar{display:none !important}
+  .paper,.paper.show{display:block;position:static;padding:0;overflow:visible}
   body{background:#fff;color:#000;font-size:10pt}
   @page{margin:14mm 12mm}
 }
@@ -419,6 +430,22 @@ select.inp{font-weight:600;appearance:none}
 .pcat th i{font-style:normal;color:#777;font-size:8pt;margin-left:6px}
 .pcat td{text-align:right;font-weight:700;padding:2.5px 0;font-size:9.5pt;
   font-variant-numeric:tabular-nums}
+.proll{width:100%;border-collapse:collapse;font-size:9pt;font-variant-numeric:tabular-nums}
+.proll thead th{text-align:left;font-weight:700;border-bottom:1px solid #000;
+  padding:3px 5px;font-size:8.5pt}
+.proll thead th.r{text-align:right}
+.proll td{padding:2.5px 5px;border-bottom:1px solid #eee}
+.proll .r{text-align:right}
+.proll .tot{font-weight:700}
+.proll tbody tr{break-inside:avoid}
+.proll tfoot th{text-align:left;padding:5px;font-weight:700;font-size:9.5pt}
+.proll tfoot td{padding:5px;font-weight:700}
+.proll tfoot .sum th,.proll tfoot .sum td{border-top:1.2px solid #000;
+  border-bottom:1px solid #ddd}
+.proll tfoot .fx th,.proll tfoot .fx td{color:#555;font-weight:600;
+  border-bottom:1px solid #ddd}
+.proll tfoot .fin th,.proll tfoot .fin td{border-top:1.2px solid #000;
+  font-size:11.5pt;font-weight:800}
 .plist{width:100%;border-collapse:collapse;font-size:9pt}
 .plist thead th{text-align:left;font-weight:700;border-bottom:1px solid #000;
   padding:3px 4px;font-size:8.5pt}
@@ -452,7 +479,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v3.0</span></div>
+    <div class="brand">당일 마감 <span class="ver">v3.2</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -541,10 +568,10 @@ select.inp{font-weight:600;appearance:none}
     <div class="card">
       <div class="chd"><span class="t">이 달 정리해서 내보내기</span></div>
       <div class="fld"><div class="stack">
-        <button class="btn pri" type="button" id="prtBtn">인쇄 · PDF로 저장</button>
+        <button class="btn pri" type="button" id="prtBtn">PDF로 저장 · 인쇄</button>
         <button class="btn" type="button" id="mcsvBtn">CSV 파일로 저장</button>
       </div></div>
-      <div class="note" style="padding-top:0">인쇄를 누르면 이 달치만 A4 한 장 형식으로 정리해 보여줍니다. 인쇄 창에서 <b>PDF로 저장</b>을 고르면 파일이 됩니다.</div>
+      <div class="note" style="padding-top:0">이 달치만 A4 한 장 형식으로 먼저 보여드립니다. 확인하고 저장을 누르면 인쇄 창이 열리고, 거기서 <b>PDF로 저장</b>을 고르면 파일이 됩니다. 파일 이름은 <b>당일마감-연도-월</b> 로 제안됩니다.</div>
     </div>
   </section>
 
@@ -632,6 +659,7 @@ select.inp{font-weight:600;appearance:none}
 </div>
 
 <div class="paper" id="paper" aria-hidden="true"></div>
+<div class="pvbar" id="pvBar"></div>
 
 <div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -1478,6 +1506,27 @@ function monthRows(y, m){
     .slice().sort(function(a,b){
       return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.kind < b.kind ? -1 : 1); });
 }
+function dailyRoll(y, m){
+  var by = {};
+  monthRows(y, m).forEach(function(t){
+    var d = by[t.date] || (by[t.date] = { rev:0, cost:0, cons:0, save:0, n:0 });
+    d.n++;
+    if(t.kind === 'revenue')          d.rev  += t.amount;
+    else if(t.kind === 'cost')        d.cost += t.amount;
+    else if(t.kind === 'consumption') d.cons += t.amount;
+    else if(t.kind === 'saving')      d.save += t.amount;
+  });
+  var rows = Object.keys(by).sort().map(function(d){
+    var x = by[d];
+    x.date = d; x.net = x.rev - x.cost - x.cons - x.save;
+    return x;
+  });
+  var sum = rows.reduce(function(a,x){
+    a.rev+=x.rev; a.cost+=x.cost; a.cons+=x.cons; a.save+=x.save; a.net+=x.net; return a;
+  }, { rev:0, cost:0, cons:0, save:0, net:0 });
+  return { rows:rows, sum:sum };
+}
+
 function monthCSV(y, m){
   var t = monT(y, m), rows = [];
   rows.push(['당일 마감 · '+y+'년 '+(m+1)+'월']);
@@ -1489,6 +1538,16 @@ function monthCSV(y, m){
   rows.push(['고정지출', -t.fixed]);
   rows.push(['저축', -t.save]);
   rows.push(['남은 돈', t.net]);
+  rows.push([]);
+  rows.push(['날짜','요일','수익','경비','소비','저축','일계']);
+  var roll = dailyRoll(y, m);
+  roll.rows.forEach(function(x){
+    rows.push([x.date, DOW[fromISO(x.date).getDay()],
+      x.rev||'', x.cost?-x.cost:'', x.cons?-x.cons:'', x.save?-x.save:'', x.net]);
+  });
+  rows.push(['합계','', roll.sum.rev, -roll.sum.cost, -roll.sum.cons, -roll.sum.save, roll.sum.net]);
+  rows.push(['고정지출','','','','','', -t.fixed]);
+  rows.push(['남은 돈','','','','','', t.net]);
   rows.push([]);
   rows.push(['날짜','요일','종류','항목','메모','금액']);
   monthRows(y, m).forEach(function(x){
@@ -1554,7 +1613,35 @@ function buildReport(y, m){
       }).join('')+'</tbody></table></div>';
   }
 
-  h += '<div class="psec"><h2>전체 기록 <em>'+list.length+'건</em></h2>'+
+  var roll = dailyRoll(y, m);
+  h += '<div class="psec"><h2>날마다 <em>'+roll.rows.length+'일</em></h2>'+
+    '<table class="proll"><thead><tr><th>날짜</th><th class="r">수익</th>'+
+    '<th class="r">경비</th><th class="r">소비</th><th class="r">저축</th>'+
+    '<th class="r tot">일계</th></tr></thead><tbody>'+
+    (roll.rows.length
+      ? roll.rows.map(function(x){
+          return '<tr><td>'+Number(x.date.slice(8))+'('+DOW[fromISO(x.date).getDay()]+')</td>'+
+            '<td class="r">'+(x.rev  ? fmt(x.rev)  : '')+'</td>'+
+            '<td class="r">'+(x.cost ? '−'+fmt(x.cost) : '')+'</td>'+
+            '<td class="r">'+(x.cons ? '−'+fmt(x.cons) : '')+'</td>'+
+            '<td class="r">'+(x.save ? '−'+fmt(x.save) : '')+'</td>'+
+            '<td class="r tot">'+signed(x.net)+'</td></tr>';
+        }).join('')
+      : '<tr><td colspan="6">기록이 없습니다</td></tr>')+
+    '</tbody><tfoot>'+
+      '<tr class="sum"><th>합계</th>'+
+        '<td class="r">'+fmt(roll.sum.rev)+'</td>'+
+        '<td class="r">'+(roll.sum.cost ? '−'+fmt(roll.sum.cost) : '0')+'</td>'+
+        '<td class="r">'+(roll.sum.cons ? '−'+fmt(roll.sum.cons) : '0')+'</td>'+
+        '<td class="r">'+(roll.sum.save ? '−'+fmt(roll.sum.save) : '0')+'</td>'+
+        '<td class="r tot">'+signed(roll.sum.net)+'</td></tr>'+
+      '<tr class="fx"><th>고정지출</th><td colspan="4"></td>'+
+        '<td class="r tot">'+signed(-t.fixed)+'</td></tr>'+
+      '<tr class="fin"><th>남은 돈</th><td colspan="4"></td>'+
+        '<td class="r tot">'+signed(t.net)+'</td></tr>'+
+    '</tfoot></table></div>';
+
+  h += '<div class="psec"><h2>상세 내역 <em>'+list.length+'건</em></h2>'+
     '<table class="plist"><thead><tr><th>날짜</th><th>종류</th><th>항목</th>'+
     '<th>메모</th><th class="r">금액</th></tr></thead><tbody>'+
     (list.length
@@ -1574,10 +1661,53 @@ function buildReport(y, m){
   return h + '</div>';
 }
 
+var APP_TITLE = document.title;
+function reportName(y, m){ return '당일마감-'+y+'-'+pad(m+1); }
+
+function doPrint(y, m){
+  document.title = reportName(y, m);        /* PDF 파일 이름이 된다 */
+  setTimeout(function(){
+    try{ window.print(); }catch(e){ toast('인쇄 창을 열 수 없어요'); }
+    setTimeout(function(){ document.title = APP_TITLE; }, 1500);
+  }, 60);
+}
+
+function howToPDF(){
+  var ua = navigator.userAgent;
+  if(/Android/i.test(ua))
+    return '프린터 고르는 칸에서 <b>PDF로 저장</b>을 고르고 저장을 누르세요.';
+  if(/iPhone|iPad|iPod/i.test(ua))
+    return '공유 창이 열리면 <b>파일에 저장</b>을 고르세요. PDF로 저장됩니다.';
+  if(/Mac OS X/i.test(ua))
+    return '인쇄 창 왼쪽 아래 <b>PDF ▾ → PDF로 저장</b>을 고르세요.';
+  return '대상(프린터) 칸에서 <b>PDF로 저장</b>을 고르세요.';
+}
+
 function printMonth(){
   var y = mon.getFullYear(), m = mon.getMonth();
-  document.getElementById('paper').innerHTML = buildReport(y, m);
-  setTimeout(function(){ try{ window.print(); }catch(e){ toast('인쇄를 열 수 없어요'); } }, 60);
+  var paper = document.getElementById('paper');
+  paper.innerHTML = buildReport(y, m);
+  paper.classList.add('show');
+  paper.setAttribute('aria-hidden', 'false');
+
+  var bar = document.getElementById('pvBar');
+  bar.innerHTML =
+    '<div class="pvh"><b>'+y+'년 '+(m+1)+'월</b> 보고서 미리보기</div>'+
+    '<div class="pvn">'+howToPDF()+' 파일 이름은 <b>'+reportName(y,m)+'</b> 로 제안됩니다.</div>'+
+    '<div class="pvb"><button class="btn" type="button" id="pvX">닫기</button>'+
+    '<button class="btn pri" type="button" id="pvGo">PDF로 저장 · 인쇄</button></div>';
+  bar.classList.add('show');
+  try{ window.scrollTo(0,0); }catch(e){}
+
+  document.getElementById('pvX').onclick = closePreview;
+  document.getElementById('pvGo').onclick = function(){ doPrint(y, m); };
+}
+function closePreview(){
+  var paper = document.getElementById('paper');
+  paper.classList.remove('show');
+  paper.setAttribute('aria-hidden', 'true');
+  paper.innerHTML = '';
+  document.getElementById('pvBar').classList.remove('show');
 }
 
 /* ---------- 소비 패턴 ----------
@@ -3067,6 +3197,10 @@ document.addEventListener('click', function(e){
 });
 document.getElementById('csvBtn').onclick = sheetCsv;
 document.getElementById('prtBtn').onclick = printMonth;
+window.addEventListener('afterprint', function(){
+  document.title = APP_TITLE;
+  setTimeout(closePreview, 200);
+});
 document.getElementById('mcsvBtn').onclick = function(){
   var y = mon.getFullYear(), m = mon.getMonth();
   var name = '당일마감-'+y+'-'+pad(m+1)+'.csv';
