@@ -189,6 +189,7 @@ button{cursor:pointer}
 /* ---------- stats ---------- */
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .row2 .fld{padding:0}
+.row2 .btn{padding:14px 10px;font-size:13.5px}
 .chips button b{display:inline-block;margin-left:5px;font-size:10px;font-weight:700;
   opacity:.55;vertical-align:1px}
 .pot{position:relative;padding:16px 22px}
@@ -363,7 +364,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.6</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.7</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -734,7 +735,7 @@ function baseCats(){ return {
   revenue:     ['일당','급여','판매','수수료','기타'],
   cost:        ['교통비','재료비','장비','수수료','식사','기타'],
   consumption: ['식사','생활용품','의류','문화','기타'],
-  saving:      ['예금','적금','투자','비상금','기타']
+  saving:      []                      /* 저축의 분류는 저축처가 한다 */
 }; }
 function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats(), rules:[], pots:[],
   sync:{ at:0, tip:true, error:'', errKind:'', count:0 } }; }
@@ -1388,9 +1389,65 @@ function renderPots(y, m){
   if(loose)
     html += '<div class="pot"><div class="ph"><span class="nm">지정 안 함</span></div>'+
       '<div class="pv">'+fmt(loose)+'원</div>'+
-      '<div class="pl">저축처를 고르지 않고 넣은 기록입니다</div></div>';
+      '<div class="pl">어디에 모은 돈인지 아직 안 정한 기록입니다</div>'+
+      (state.pots.length
+        ? '<button class="pe" data-assign aria-label="정리">정리하기</button>'
+        : '<div class="pl" style="color:var(--amber)">먼저 저축처를 만들어 주세요</div>')+
+      '</div>';
 
   document.getElementById('potList').innerHTML = html;
+}
+
+/* 저축처를 안 고르고 쌓인 기록을 한 번에 옮긴다.
+   한 건씩 열어 고치게 두면 아무도 안 한다. */
+function sheetAssign(){
+  var loose = state.txns.filter(function(t){
+    return t.kind === 'saving' && !potOf(t.pot || '');
+  }).sort(function(a,b){ return a.date < b.date ? 1 : -1; });
+  if(!loose.length){ toast('정리할 기록이 없어요'); return; }
+  var pots = state.pots.filter(function(p){ return p.active !== false; });
+  if(!pots.length){ toast('먼저 저축처를 만들어 주세요'); return; }
+
+  function opts(sel){
+    return '<option value="">그대로 두기</option>'+
+      pots.map(function(p){
+        return '<option value="'+p.id+'"'+(p.id===sel?' selected':'')+'>'+esc(p.name)+'</option>';
+      }).join('');
+  }
+
+  openSheet('저축처 지정', loose.length+'건이 아직 어디에 모은 돈인지 정해지지 않았어요',
+    '<div class="fld"><label for="aAll">한꺼번에 옮기기</label>'+
+      '<div class="row2"><select class="inp" id="aAll">'+opts('')+'</select>'+
+      '<button class="btn" type="button" id="aApply">모두 이곳으로</button></div></div>'+
+    '<div class="fld"><label>하나씩 정하기</label><div class="lines" id="aList">'+
+      loose.map(function(t, i){
+        return '<div class="ln" style="grid-template-columns:52px 1fr 108px">'+
+          '<span style="font-size:12px;font-weight:700;color:var(--muted)">'+
+            t.date.slice(5).replace('-','/')+'</span>'+
+          '<span style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;'+
+            'white-space:nowrap">'+esc(t.category || '저축')+
+            (t.memo ? ' <i style="color:var(--faint);font-style:normal">'+esc(t.memo)+'</i>' : '')+
+            '<br><b style="font-size:11.5px;color:var(--teal)">'+fmt(t.amount)+'원</b></span>'+
+          '<select class="inp" data-t="'+t.id+'">'+opts('')+'</select></div>';
+      }).join('')+'</div></div>',
+    function(){
+      var moved = 0;
+      sheet.querySelectorAll('#aList select[data-t]').forEach(function(el){
+        if(!el.value) return;
+        var t = state.txns.filter(function(x){ return x.id === el.dataset.t; })[0];
+        var p = potOf(el.value);
+        if(!t || !p) return;
+        t.pot = p.id; t.category = p.name; moved++;
+      });
+      if(!moved){ toast('옮길 기록을 골라주세요'); return false; }
+      commit(); toast(moved+'건을 옮겼어요');
+    }, '옮기기');
+
+  document.getElementById('aApply').onclick = function(){
+    var v = document.getElementById('aAll').value;
+    sheet.querySelectorAll('#aList select[data-t]').forEach(function(el){ el.value = v; });
+    toast(v ? '전부 골랐어요 — 아래 옮기기를 눌러주세요' : '전부 그대로 두기로 바꿨어요');
+  };
 }
 
 /* ---------- 백업 알림 ---------- */
@@ -1482,7 +1539,8 @@ function renderSettings(){
     : '';
 
   document.getElementById('catList').innerHTML =
-    ['revenue','cost','consumption','saving'].map(function(k){
+    /* 저축의 분류는 저축처가 하므로 여기서는 다루지 않는다 */
+    ['revenue','cost','consumption'].map(function(k){
       return '<div class="catgrp"><div class="h">'+KIND[k]+'</div><div class="chips">'+
         state.cats[k].map(function(c){
           return '<button data-catdel="'+esc(c)+'" data-k="'+k+'">'+esc(c)+'<b>×</b></button>';
@@ -1566,20 +1624,27 @@ function sheetEntry(kind, editId, pre){
   pre = (!ed && pre) ? pre : null;
 
   function chips(k, sel, potId){
-    /* 저축은 '어디에 모으는가' 가 항목보다 중요하다 */
-    var pots = (k === 'saving') ? state.pots.filter(function(p){ return p.active !== false; }) : [];
-    var h = pots.map(function(p){
-      return '<button type="button" data-c="'+esc(p.name)+'" data-pot="'+p.id+'" aria-pressed="'+
-        (potId ? p.id===potId : (!potId && !sel && p === pots[0]))+'">'+esc(p.name)+
-        '<b>'+(p.kind==='product'?'적금':'자유')+'</b></button>';
-    }).join('');
+    /* 저축의 분류는 저축처 하나로 한다. 항목과 저축처가 따로 있으면
+       "예금" 이라고만 적힌 기록이 어느 예금인지 끝내 알 수 없다. */
+    if(k === 'saving'){
+      var pots = state.pots.filter(function(p){ return p.active !== false; });
+      var h = pots.map(function(p, i){
+        return '<button type="button" data-c="'+esc(p.name)+'" data-pot="'+p.id+'" aria-pressed="'+
+          (potId ? p.id===potId : (!potId && !sel && i===0))+'">'+esc(p.name)+
+          '<b>'+(p.kind==='product'?'적금':'자유')+'</b></button>';
+      }).join('');
+      /* 저축처에 없는 옛 분류로 적힌 기록을 고칠 때는 그 이름도 남겨둔다 */
+      if(sel && !pots.some(function(p){ return p.name === sel; }))
+        h += '<button type="button" data-c="'+esc(sel)+'" aria-pressed="'+(!potId)+'">'+
+             esc(sel)+'<b>옛 분류</b></button>';
+      return h + '<button type="button" class="add" data-newpot>＋ 저축처 만들기</button>';
+    }
     var list = state.cats[k];
     if(sel && list.indexOf(sel) < 0) list = list.concat([sel]);
-    h += list.map(function(c){
+    return list.map(function(c){
       return '<button type="button" data-c="'+esc(c)+'" aria-pressed="'+
-        (potId ? false : (sel ? c===sel : (!pots.length && c===list[0])))+'">'+esc(c)+'</button>';
-    }).join('');
-    return h + '<button type="button" class="add" data-newcat>＋ 직접 입력</button>';
+        (sel ? c===sel : c===list[0])+'">'+esc(c)+'</button>';
+    }).join('') + '<button type="button" class="add" data-newcat>＋ 직접 입력</button>';
   }
 
   openSheet(ed ? '기록 수정' : KIND[kind]+' 기록',
@@ -1650,7 +1715,10 @@ function sheetEntry(kind, editId, pre){
 
   bindAmount(document.getElementById('eA'));
   if(ed){ setAmt('eA', ed.amount); document.getElementById('eM').value = ed.memo || ''; }
-  else if(pre){ setAmt('eA', pre.amount); }
+  else if(pre){
+    setAmt('eA', pre.amount);
+    if(pre.memo) document.getElementById('eM').value = pre.memo;
+  }
 
   document.getElementById('eQ').addEventListener('click', function(e){
     var b = e.target.closest('[data-add]'); if(!b) return;
@@ -1671,6 +1739,15 @@ function sheetEntry(kind, editId, pre){
   });
 
   cc.addEventListener('click', function(e){
+    if(e.target.closest('[data-newpot]')){
+      var keep = { kind: sheet.querySelector('#kSeg [aria-pressed="true"]').dataset.k,
+                   amount: readAmt('eA'), date: document.getElementById('eD').value,
+                   memo: document.getElementById('eM').value };
+      sheetPot(null, function(){                     /* 만들고 나면 하던 기록으로 돌아온다 */
+        sheetEntry(keep.kind, null, { amount:keep.amount, date:keep.date, memo:keep.memo });
+      });
+      return;
+    }
     if(e.target.closest('[data-newcat]')){
       var box = document.getElementById('eNew');
       box.style.display = '';
@@ -1805,7 +1882,7 @@ function sheetPreset(id){
 }
 
 /* ---------- 저축처 추가 / 수정 ---------- */
-function sheetPot(id){
+function sheetPot(id, then){
   var p = id ? potOf(id) : null;
   if(id && !p) return;
   var kind = p ? p.kind : 'product';
@@ -1855,6 +1932,7 @@ function sheetPot(id){
       if(p){ Object.keys(next).forEach(function(x){ p[x] = next[x]; }); }
       else { next.id = uid(); next.active = true; state.pots.push(next); }
       commit(); toast(name + (p ? ' 수정했어요' : ' 추가했어요'));
+      if(then) setTimeout(then, 0);
     });
 
   function wire(){
@@ -2421,7 +2499,8 @@ document.getElementById('addQ').onclick = function(){ sheetPreset(null); };
 document.getElementById('addS').onclick = function(){ sheetSub(null); };
 document.getElementById('addP').onclick = function(){ sheetPot(null); };
 document.addEventListener('click', function(e){
-  var b = e.target.closest('[data-potedit]'); if(b) sheetPot(b.dataset.potedit);
+  var b = e.target.closest('[data-potedit]'); if(b) return sheetPot(b.dataset.potedit);
+  if(e.target.closest('[data-assign]')) sheetAssign();
 });
 document.getElementById('csvBtn').onclick = sheetCsv;
 document.getElementById('syncBox').addEventListener('click', function(e){
