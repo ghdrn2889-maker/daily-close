@@ -189,6 +189,25 @@ button{cursor:pointer}
 .onb .four .ds{margin-left:auto;font-size:13px;color:var(--muted);font-weight:500}
 
 /* ---------- stats ---------- */
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row2 .fld{padding:0}
+.chips button b{display:inline-block;margin-left:5px;font-size:10px;font-weight:700;
+  opacity:.55;vertical-align:1px}
+.pot{position:relative;padding:16px 22px}
+.pot+.pot{border-top:1px solid var(--line)}
+.pot .ph{display:flex;align-items:baseline;gap:8px}
+.pot .nm{font-size:15px;font-weight:700;letter-spacing:-.03em}
+.pot .mo{margin-left:auto;font-size:11.5px;font-weight:700;color:var(--teal)}
+.pot .mo.none{color:var(--faint)}
+.pot .pt{font-size:11.5px;color:var(--faint);font-weight:600;margin-top:3px}
+.pot .pv{font-size:19px;font-weight:800;letter-spacing:-.05em;margin-top:9px;color:var(--teal)}
+.pot .pv i{font-style:normal;font-size:13px;font-weight:600;color:var(--faint);letter-spacing:-.03em}
+.pot .pl{font-size:11.5px;color:var(--muted);font-weight:600;margin-top:7px}
+.pot .pe{position:absolute;right:16px;bottom:14px;border:0;background:var(--sunk);
+  color:var(--muted);font-family:inherit;font-size:11.5px;font-weight:700;
+  border-radius:9px;padding:6px 11px}
+.gbar.sm{height:6px;margin-top:8px}
+.gbar.sm i{background:var(--teal)}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);padding:22px 10px}
 .stats:has(.st:nth-child(4)){grid-template-columns:repeat(2,1fr);row-gap:20px}
 .stats:has(.st:nth-child(4)) .st:nth-child(odd){box-shadow:none}
@@ -346,7 +365,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.5</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.6</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -411,6 +430,11 @@ select.inp{font-weight:600;appearance:none}
     <div class="card"><div class="goal" id="goal"></div></div>
     <div class="card"><div class="stats" id="monStats"></div></div>
 
+    <div class="card" id="potCard" style="display:none">
+      <div class="chd"><span class="t">모으는 곳</span><span class="s" id="potSum"></span></div>
+      <div id="potList"></div>
+    </div>
+
     <div class="card">
       <div class="chd"><span class="t">날짜별</span></div>
       <div class="cal" id="cal"></div>
@@ -441,6 +465,12 @@ select.inp{font-weight:600;appearance:none}
       <div class="chd"><span class="t">항목</span><span class="s">눌러서 삭제</span></div>
       <div id="catList"></div>
       <div class="note" style="padding-top:12px">기록할 때 고르는 항목 목록입니다. 시트에서 <b>＋ 직접 입력</b>으로 새 항목을 만들면 여기에 쌓입니다.</div>
+    </div>
+
+    <div class="card">
+      <div class="chd"><span class="t">모으는 곳</span><button class="btn sm" id="addP">추가</button></div>
+      <div id="pList"></div>
+      <div class="note">적금처럼 기간과 납부액이 정해진 것과, 그때그때 빼두는 자유 저축을 나눠서 관리합니다. 저축을 기록할 때 여기서 고르면 얼마나 채웠는지 따라갑니다.</div>
     </div>
 
     <div class="card">
@@ -708,7 +738,7 @@ function baseCats(){ return {
   consumption: ['식사','생활용품','의류','문화','기타'],
   saving:      ['예금','적금','투자','비상금','기타']
 }; }
-function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats(), rules:[],
+function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats(), rules:[], pots:[],
   sync:{ at:0, tip:true, error:'', errKind:'', count:0 } }; }
 
 var LOAD_ERROR = false;
@@ -724,6 +754,7 @@ var state = (function(){
     return { txns:       Array.isArray(p.txns)       ? p.txns       : [],
              presets:    Array.isArray(p.presets)    ? p.presets    : [],
              recurrings: Array.isArray(p.recurrings) ? p.recurrings : [],
+             pots:       Array.isArray(p.pots)       ? p.pots       : [],
              rules: (Array.isArray(p.rules) ? p.rules : []).filter(function(r){
                return r && typeof r.kw === 'string' && r.kw && typeof r.kind === 'string';
              }),
@@ -772,7 +803,7 @@ var SCHEMA = 1;
 function exportPayload(){
   return JSON.stringify({
     app: 'daily-close', schema: SCHEMA, exportedAt: new Date().toISOString(),
-    data: { txns: state.txns, presets: state.presets,
+    data: { txns: state.txns, presets: state.presets, pots: state.pots,
             recurrings: state.recurrings, cats: state.cats, rules: state.rules }
   }, null, 2);
 }
@@ -1020,7 +1051,7 @@ function renderToday(){
   document.getElementById('dayList').innerHTML = list.length
     ? '<div class="rowlist">' + list.map(function(x){
         return '<button class="ent" data-edit="'+x.id+'"><span class="dot '+DOTC[x.kind]+'"></span>'+
-          '<span class="nm">'+esc(x.category)+'<small>'+esc(x.memo || KIND[x.kind])+'</small></span>'+
+          '<span class="nm">'+esc(x.category)+'<small>'+esc(potSub(x))+'</small></span>'+
           entAmt(x.kind, x.amount)+
           '<span class="go" aria-hidden="true">›</span></button>';
       }).join('') + '</div>'
@@ -1034,6 +1065,43 @@ function renderToday(){
           (sv && net !== -sv ? ' · 그중 저축 '+fmt(sv):'')+'</div></button>';
       }).join('') + '<button class="qbtn qadd" data-qadd>＋</button></div>'
     : '<div class="quick"><button class="qbtn qadd" data-qadd style="padding:13px 18px">＋ 자주 쓰는 묶음 만들기</button></div>';
+}
+
+/* ---------- 저축처 ----------
+   같은 '저축'이라도 성격이 다르다. 적금은 약속한 기간과 회차가 있고,
+   따로 빼두는 돈은 목표만 있거나 그것도 없다. 둘을 한 칸에 넣으면
+   "이번 달 적금을 넣었나" 같은 걸 영영 알 수 없다. */
+function potOf(id){ return state.pots.filter(function(p){ return p.id===id; })[0] || null; }
+function potMonths(p, months){
+  /* 시작 월에서 n 개월 뒤 (YYYY-MM) */
+  var y = Number(p.start.slice(0,4)), m = Number(p.start.slice(5,7)) - 1 + months - 1;
+  return (y + Math.floor(m/12)) + '-' + pad((m % 12 + 12) % 12 + 1);
+}
+function potStat(p){
+  var paid = 0, ms = {};
+  state.txns.forEach(function(t){
+    if(t.kind !== 'saving' || t.pot !== p.id) return;
+    paid += t.amount; ms[t.date.slice(0,7)] = 1;
+  });
+  var times = Object.keys(ms).length;
+  var target = p.kind === 'product' ? (p.monthly||0) * (p.months||0) : (p.goal || 0);
+  return {
+    paid: paid, times: times, target: target,
+    rate: target > 0 ? Math.min(100, paid / target * 100) : null,
+    left: p.kind === 'product' ? Math.max(0, (p.months||0) - times) : null,
+    end:  (p.kind === 'product' && p.start && p.months) ? potMonths(p, p.months) : null,
+    thisMonth: !!ms[iso(new Date()).slice(0,7)]
+  };
+}
+function potSub(t){
+  if(t.kind !== 'saving') return t.memo || KIND[t.kind];
+  var p = t.pot ? potOf(t.pot) : null;
+  if(!p) return t.memo || '저축';
+  return (p.kind === 'product' ? '적금' : '자유') + (t.memo ? ' · ' + t.memo : '');
+}
+function potName(t){
+  var p = t.pot ? potOf(t.pot) : null;
+  return p ? p.name : (t.category || '저축');
 }
 
 /* ---------- 이달 브리핑 ----------
@@ -1119,6 +1187,17 @@ function brief(y, m){
   if(t.save > 0 && t.net < 0 && b.netBefore >= 0)
     b.notes.push({ t:'thin', s:'저축을 빼기 전에는 '+man(b.netBefore)+' 남았어요 — '+
       '저축 '+fmt(t.save)+'원이 커서 이번 달은 '+man(-t.net)+' 모자랍니다' });
+
+  /* 적금은 거르면 손해가 난다. 이번 달 아직이면 말해준다 */
+  if(running){
+    state.pots.forEach(function(p){
+      if(p.kind !== 'product' || p.active === false) return;
+      var st = potStat(p);
+      if(st.left === 0 || st.thisMonth) return;
+      b.notes.push({ t:'thin', s:'<b>'+esc(p.name)+'</b> 이번 달 납입이 아직이에요 (월 '+
+        fmt(p.monthly)+'원 · 남은 '+st.left+'회)' });
+    });
+  }
 
   /* 기록이 성긴 달은 숫자를 믿기 어렵다 */
   var days = {};
@@ -1227,6 +1306,8 @@ function renderMonth(){
         '<div class="k">모은 돈'+(mo>1 ? ' · 월평균 '+fmt(Math.round(sv/mo/10000))+'만' : '')+'</div></div>';
     })();
 
+  renderPots(y, m);
+
   var first = new Date(y,m,1).getDay(), n = dim(y,m), fx = dailyFixed();
   var html = DOW.map(function(x){ return '<div class="dw">'+x+'</div>'; }).join('');
   for(var i=0;i<first;i++) html += '<div class="cel void"></div>';
@@ -1256,12 +1337,62 @@ function renderMonth(){
           '<span class="'+cls(net)+'">'+signed(net)+'</span></div>'+
           '<div class="rowlist">'+ l.map(function(x){
             return '<button class="ent" data-edit="'+x.id+'"><span class="dot '+DOTC[x.kind]+'"></span>'+
-              '<span class="nm">'+esc(x.category)+'<small>'+esc(x.memo || KIND[x.kind])+'</small></span>'+
+              '<span class="nm">'+esc(x.category)+'<small>'+esc(potSub(x))+'</small></span>'+
               entAmt(x.kind, x.amount)+
               '<span class="go" aria-hidden="true">›</span></button>';
           }).join('') +'</div>';
       }).join('');
   }
+}
+
+/* ---------- 모으는 곳 ---------- */
+function renderPots(y, m){
+  var card = document.getElementById('potCard');
+  var pre = y+'-'+pad(m+1);
+  var loose = 0;                     /* 저축처를 안 고른 저축 */
+  state.txns.forEach(function(t){
+    if(t.kind === 'saving' && !potOf(t.pot||'')) loose += t.amount;
+  });
+  if(!state.pots.length && !loose){ card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  var total = savedTotal();
+  document.getElementById('potSum').textContent = '모두 '+fmt(total)+'원';
+
+  var html = state.pots.map(function(p){
+    var st = potStat(p);
+    var mine = state.txns.filter(function(t){
+      return t.kind==='saving' && t.pot===p.id && t.date.indexOf(pre)===0;
+    }).reduce(function(a,t){ return a + t.amount; }, 0);
+
+    var tag = p.kind === 'product'
+      ? '적금 · 월 '+fmt(p.monthly)+'원 · '+p.months+'개월'
+      : '자유' + (p.goal ? ' · 목표 '+fmt(p.goal)+'원' : '');
+    var line = p.kind === 'product'
+      ? st.times+'회 넣음 · '+(st.left ? '남은 '+st.left+'회' : '납입 완료')+
+        (st.end ? ' · 마지막 납입 '+st.end.replace('-','.') : '')
+      : (st.target ? '목표까지 '+fmt(Math.max(0, st.target - st.paid))+'원' : '목표 없음');
+
+    return '<div class="pot">'+
+      '<div class="ph"><span class="nm">'+esc(p.name)+'</span>'+
+        '<span class="mo'+(mine?'':' none')+'">'+
+          (mine ? '이번 달 '+fmt(mine) : '이번 달 없음')+'</span></div>'+
+      '<div class="pt">'+tag+'</div>'+
+      '<div class="pv">'+fmt(st.paid)+'원'+
+        (st.target ? '<i> / '+fmt(st.target)+'</i>' : '')+'</div>'+
+      (st.rate !== null
+        ? '<div class="gbar sm"><i style="width:'+st.rate.toFixed(1)+'%"></i></div>' : '')+
+      '<div class="pl">'+line+'</div>'+
+      '<button class="pe" data-potedit="'+p.id+'" aria-label="수정">수정</button>'+
+    '</div>';
+  }).join('');
+
+  if(loose)
+    html += '<div class="pot"><div class="ph"><span class="nm">지정 안 함</span></div>'+
+      '<div class="pv">'+fmt(loose)+'원</div>'+
+      '<div class="pl">저축처를 고르지 않고 넣은 기록입니다</div></div>';
+
+  document.getElementById('potList').innerHTML = html;
 }
 
 /* ---------- 백업 알림 ---------- */
@@ -1370,6 +1501,19 @@ function renderSettings(){
       }).join('')
     : '<div class="blank">아직 만든 묶음이 없어요</div>';
 
+  document.getElementById('pList').innerHTML = state.pots.length
+    ? state.pots.map(function(p){
+        var st = potStat(p);
+        var sub = p.kind === 'product'
+          ? '적금 · 월 '+fmt(p.monthly)+' · '+st.times+'/'+p.months+'회'
+          : '자유' + (p.goal ? ' · 목표 '+fmt(p.goal) : '');
+        return '<button class="srow" data-potedit="'+p.id+'">'+
+          '<span class="nm">'+esc(p.name)+'<small>'+sub+'</small></span>'+
+          '<span class="amt" style="color:var(--teal)">'+fmt(st.paid)+'</span>'+
+          '<span class="go" aria-hidden="true">›</span></button>';
+      }).join('')
+    : '<div class="blank">아직 만든 저축처가 없어요</div>';
+
   document.getElementById('sList').innerHTML = state.recurrings.length
     ? state.recurrings.map(function(r){
         var cyc = r.cycle==='monthly' ? '매달 '+r.billingDay+'일'
@@ -1423,13 +1567,21 @@ function sheetEntry(kind, editId, pre){
   kind = ed ? ed.kind : (kind || 'consumption');
   pre = (!ed && pre) ? pre : null;
 
-  function chips(k, sel){
+  function chips(k, sel, potId){
+    /* 저축은 '어디에 모으는가' 가 항목보다 중요하다 */
+    var pots = (k === 'saving') ? state.pots.filter(function(p){ return p.active !== false; }) : [];
+    var h = pots.map(function(p){
+      return '<button type="button" data-c="'+esc(p.name)+'" data-pot="'+p.id+'" aria-pressed="'+
+        (potId ? p.id===potId : (!potId && !sel && p === pots[0]))+'">'+esc(p.name)+
+        '<b>'+(p.kind==='product'?'적금':'자유')+'</b></button>';
+    }).join('');
     var list = state.cats[k];
     if(sel && list.indexOf(sel) < 0) list = list.concat([sel]);
-    return list.map(function(c){
+    h += list.map(function(c){
       return '<button type="button" data-c="'+esc(c)+'" aria-pressed="'+
-        (sel ? c===sel : c===list[0])+'">'+esc(c)+'</button>';
-    }).join('') + '<button type="button" class="add" data-newcat>＋ 직접 입력</button>';
+        (potId ? false : (sel ? c===sel : (!pots.length && c===list[0])))+'">'+esc(c)+'</button>';
+    }).join('');
+    return h + '<button type="button" class="add" data-newcat>＋ 직접 입력</button>';
   }
 
   openSheet(ed ? '기록 수정' : KIND[kind]+' 기록',
@@ -1447,8 +1599,9 @@ function sheetEntry(kind, editId, pre){
         '<button type="button" class="clr" data-add="0" aria-label="금액 지우기">C</button>'+
       '</div></div>'+
 
-    '<div class="fld"><label>항목</label><div class="chips" id="eC">'+
-      chips(kind, (ed && ed.category) || (pre && pre.category))+'</div>'+
+    '<div class="fld"><label id="eCL">'+(kind==='saving'?'어디에 모으나요':'항목')+'</label>'+
+      '<div class="chips" id="eC">'+
+      chips(kind, (ed && ed.category) || (pre && pre.category), ed && ed.pot)+'</div>'+
       '<div id="eNew" style="display:none;margin-top:9px">'+
         '<input class="inp" type="text" id="eNewI" placeholder="새 항목 이름" autocomplete="off"></div></div>'+
 
@@ -1465,14 +1618,20 @@ function sheetEntry(kind, editId, pre){
       var a = readAmt('eA');
       if(!(a > 0)){ document.getElementById('eA').focus(); toast('금액을 입력해 주세요'); return false; }
       var k = sheet.querySelector('#kSeg [aria-pressed="true"]').dataset.k;
-      var cat = commitNewCat(k) || sheet.querySelector('#eC [aria-pressed="true"]').dataset.c;
+      var hit = sheet.querySelector('#eC [aria-pressed="true"]');
+      var newCat = commitNewCat(k);
+      var cat = newCat || (hit ? hit.dataset.c : KIND[k]);
+      var pot = (!newCat && hit && hit.dataset.pot) ? hit.dataset.pot : null;
       var date = document.getElementById('eD').value || iso(cur);
       var memo = document.getElementById('eM').value.trim();
 
       if(ed){
         ed.kind = k; ed.amount = a; ed.category = cat; ed.date = date; ed.memo = memo;
+        if(pot) ed.pot = pot; else delete ed.pot;
       }else{
-        push({ date:date, kind:k, amount:a, category:cat, memo:memo });
+        var rec = { date:date, kind:k, amount:a, category:cat, memo:memo };
+        if(pot) rec.pot = pot;
+        push(rec);
       }
       cur = fromISO(date);          /* 넣은 날짜로 화면을 옮겨 결과가 바로 보이게 */
       commit();
@@ -1505,6 +1664,8 @@ function sheetEntry(kind, editId, pre){
     var b = e.target.closest('[data-k]'); if(!b) return;
     seg.querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', x===b); });
     cc.innerHTML = chips(b.dataset.k);
+    document.getElementById('eCL').textContent =
+      b.dataset.k === 'saving' ? '어디에 모으나요' : '항목';
     document.getElementById('eNew').style.display = 'none';
     if(!ed) sheet.querySelector('.sh-t h3').textContent = KIND[b.dataset.k]+' 기록';
     var sub = sheet.querySelector('.sh-t .sub');
@@ -1643,6 +1804,79 @@ function sheetPreset(id){
       commit(); closeSheet(); toast(p.name+' 묶음을 지웠어요');
     };
   }
+}
+
+/* ---------- 저축처 추가 / 수정 ---------- */
+function sheetPot(id){
+  var p = id ? potOf(id) : null;
+  if(id && !p) return;
+  var kind = p ? p.kind : 'product';
+  var thisMon = iso(new Date()).slice(0,7);
+
+  function form(k){
+    return k === 'product'
+      ? '<div class="fld"><label for="pM">한 달 납부액</label>'+
+          '<input class="inp big" type="text" id="pM" inputmode="numeric" placeholder="0" autocomplete="off"></div>'+
+        '<div class="row2">'+
+          '<div class="fld"><label for="pT">기간 <span>개월</span></label>'+
+            '<input class="inp" type="number" id="pT" min="1" max="600" inputmode="numeric" value="'+
+              (p && p.months ? p.months : 12)+'"></div>'+
+          '<div class="fld"><label for="pS">시작</label>'+
+            '<input class="inp" type="month" id="pS" value="'+(p && p.start ? p.start : thisMon)+'"></div>'+
+        '</div>'+
+        '<div class="note" style="padding:0 0 2px">만기와 남은 회차를 여기서 계산합니다.</div>'
+      : '<div class="fld"><label for="pG">목표 금액 <span>선택 · 없으면 비워두세요</span></label>'+
+          '<input class="inp big" type="text" id="pG" inputmode="numeric" placeholder="0" autocomplete="off"></div>'+
+        '<div class="note" style="padding:0 0 2px">넣고 싶을 때 넣는 저축입니다. 목표를 적으면 얼마나 왔는지 보여드려요.</div>';
+  }
+
+  openSheet(p ? '저축처 수정' : '저축처 추가', '어디에 모으는 돈인가요',
+    '<div class="seg" id="pSeg">'+
+      [['product','금융상품'],['free','자유 저축']].map(function(x){
+        return '<button type="button" data-p="'+x[0]+'" aria-pressed="'+(x[0]===kind)+'">'+x[1]+'</button>';
+      }).join('')+'</div>'+
+    '<div class="fld"><label for="pNm">이름</label>'+
+      '<input class="inp" type="text" id="pNm" placeholder="KB 정기적금" value="'+(p?esc(p.name):'')+'"></div>'+
+    '<div id="pBody">'+form(kind)+'</div>'+
+    (p ? '<div class="pad" style="padding-bottom:0"><button class="btn dgr" type="button" id="pDl">이 저축처 삭제</button></div>' : ''),
+    function(){
+      var k = sheet.querySelector('#pSeg [aria-pressed="true"]').dataset.p;
+      var name = document.getElementById('pNm').value.trim();
+      if(!name){ document.getElementById('pNm').focus(); toast('이름을 넣어주세요'); return false; }
+      var next = { name:name, kind:k };
+      if(k === 'product'){
+        var mo = readAmt('pM'), tm = val('pT');
+        if(!(mo > 0) || !(tm > 0)){ toast('납부액과 기간을 넣어주세요'); return false; }
+        next.monthly = mo; next.months = Math.min(tm, 600);
+        next.start = document.getElementById('pS').value || thisMon;
+        next.goal = 0;
+      }else{
+        next.goal = readAmt('pG') || 0;
+        next.monthly = 0; next.months = 0; next.start = '';
+      }
+      if(p){ Object.keys(next).forEach(function(x){ p[x] = next[x]; }); }
+      else { next.id = uid(); next.active = true; state.pots.push(next); }
+      commit(); toast(name + (p ? ' 수정했어요' : ' 추가했어요'));
+    });
+
+  function wire(){
+    var m = document.getElementById('pM'), g = document.getElementById('pG');
+    if(m){ bindAmount(m); if(p && p.monthly) setAmt('pM', p.monthly); }
+    if(g){ bindAmount(g); if(p && p.goal) setAmt('pG', p.goal); }
+  }
+  wire();
+  document.getElementById('pSeg').addEventListener('click', function(e){
+    var btn = e.target.closest('[data-p]'); if(!btn) return;
+    sheet.querySelectorAll('#pSeg [data-p]').forEach(function(x){
+      x.setAttribute('aria-pressed', x === btn); });
+    document.getElementById('pBody').innerHTML = form(btn.dataset.p);
+    wire();
+  });
+  if(p) document.getElementById('pDl').onclick = function(){
+    state.pots = state.pots.filter(function(x){ return x.id !== p.id; });
+    state.txns.forEach(function(t){ if(t.pot === p.id) delete t.pot; });   /* 기록은 남긴다 */
+    commit(); closeSheet(); toast('저축처를 지웠어요 — 넣은 기록은 그대로 있습니다');
+  };
 }
 
 /* ---------- 구독 추가 / 수정 ---------- */
@@ -2187,6 +2421,10 @@ document.querySelector('.acts').addEventListener('click', function(e){
 });
 document.getElementById('addQ').onclick = function(){ sheetPreset(null); };
 document.getElementById('addS').onclick = function(){ sheetSub(null); };
+document.getElementById('addP').onclick = function(){ sheetPot(null); };
+document.addEventListener('click', function(e){
+  var b = e.target.closest('[data-potedit]'); if(b) sheetPot(b.dataset.potedit);
+});
 document.getElementById('csvBtn').onclick = sheetCsv;
 document.getElementById('syncBox').addEventListener('click', function(e){
   if(e.target.closest('#ckSave')){
@@ -2301,7 +2539,7 @@ function mergeState(p){
     if(typeof x.amount !== 'number' || !(x.amount > 0)) return;
     state.txns.push({ id:x.id, date:x.date, kind:x.kind, amount:x.amount,
       category: String(x.category || KIND[x.kind]), memo: String(x.memo || ''),
-      rounds: x.rounds });
+      rounds: x.rounds, pot: x.pot });
     seen[x.id] = 1; n.t++;
   });
 
@@ -2318,6 +2556,13 @@ function mergeState(p){
   (Array.isArray(p.presets) ? p.presets : []).forEach(function(x){
     if(!x || !x.id || qSeen[x.id] || !Array.isArray(x.lines) || !x.lines.length) return;
     state.presets.push(x); qSeen[x.id] = 1; n.q++;
+  });
+
+  var potSeen = {};
+  state.pots.forEach(function(x){ potSeen[x.id] = 1; });
+  (Array.isArray(p.pots) ? p.pots : []).forEach(function(x){
+    if(!x || !x.id || potSeen[x.id] || !x.name) return;
+    state.pots.push(x); potSeen[x.id] = 1;
   });
 
   (Array.isArray(p.rules) ? p.rules : []).forEach(function(r){
