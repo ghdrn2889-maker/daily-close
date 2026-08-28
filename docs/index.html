@@ -209,6 +209,25 @@ button{cursor:pointer}
   border-radius:9px;padding:6px 11px}
 .gbar.sm{height:6px;margin-top:8px}
 .gbar.sm i{background:var(--teal)}
+.cmp{padding:6px 22px 16px}
+.cr{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center;padding:7px 0}
+.cr.plain{grid-template-columns:1fr auto}
+.cr .k{font-size:13px;font-weight:700;letter-spacing:-.03em;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.cr .k i{display:block;font-style:normal;font-size:11px;color:var(--faint);font-weight:600}
+.cr .bar{height:8px;border-radius:99px;background:var(--sunk);overflow:hidden}
+.cr .bar i{display:block;height:100%;border-radius:99px;background:var(--red)}
+.cr .v{font-size:13px;font-weight:700;letter-spacing:-.03em;text-align:right;white-space:nowrap}
+.cr .v em{display:block;font-style:normal;font-size:10.5px;color:var(--faint);font-weight:600}
+.dow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;padding:16px 22px 8px;
+  align-items:end}
+.dow .dc{text-align:center}
+.dow .bw{height:76px;display:flex;align-items:flex-end;justify-content:center}
+.dow .bw i{display:block;width:70%;min-height:3px;border-radius:5px 5px 2px 2px;
+  background:var(--line-2)}
+.dow .hi .bw i{background:var(--red)}
+.dow .dl{font-size:11px;color:var(--faint);font-weight:700;margin-top:6px}
+.dow .hi .dl{color:var(--ink)}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);padding:22px 10px}
 .stats:has(.st:nth-child(4)){grid-template-columns:repeat(2,1fr);row-gap:20px}
 .stats:has(.st:nth-child(4)) .st:nth-child(odd){box-shadow:none}
@@ -366,10 +385,11 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.7</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.8</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
+      <button class="nv" role="tab" data-v="pattern" aria-selected="false">패턴</button>
       <button class="nv" role="tab" data-v="settings" aria-selected="false">설정</button>
     </div>
   </header>
@@ -450,6 +470,17 @@ select.inp{font-weight:600;appearance:none}
       <div class="chd"><span class="t">이번 달 전체 기록</span><span class="s" id="monCnt"></span></div>
       <div id="monList"></div>
     </div>
+  </section>
+
+  <!-- ============ 패턴 ============ -->
+  <section class="view" id="v-pattern">
+    <div class="navrow"><h1>소비 패턴</h1></div>
+    <div class="seg" id="pwSeg" style="margin:0 0 2px">
+      <button type="button" data-w="3" aria-pressed="true">최근 3개월</button>
+      <button type="button" data-w="6" aria-pressed="false">6개월</button>
+      <button type="button" data-w="0" aria-pressed="false">전체</button>
+    </div>
+    <div id="patBody"></div>
   </section>
 
   <!-- ============ 설정 ============ -->
@@ -1346,6 +1377,222 @@ function renderMonth(){
   }
 }
 
+/* ---------- 소비 패턴 ----------
+   자기 기록을 읽는 일은 통계다. 말로 풀어주는 것 말고는 계산으로 다 된다.
+   표본이 적을 때 단정하지 않는 것만 조심하면 된다. */
+var PAT_W = 3;
+
+function patFrom(months){
+  if(!months) return '0000-00-00';
+  var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - months + 1);
+  return iso(d);
+}
+function median(a){
+  if(!a.length) return 0;
+  var v = a.slice().sort(function(x,y){ return x-y; });
+  var m = Math.floor(v.length/2);
+  return v.length % 2 ? v[m] : Math.round((v[m-1]+v[m])/2);
+}
+
+function analyzeSpend(months){
+  var from = patFrom(months);
+  var list = state.txns.filter(function(t){ return t.date >= from; });
+  var cons = list.filter(function(t){ return t.kind === 'consumption'; });
+  var costs = list.filter(function(t){ return t.kind === 'cost'; });
+
+  var earn = {}, spentOn = {}, monthsSeen = {};
+  list.forEach(function(t){
+    monthsSeen[t.date.slice(0,7)] = 1;
+    if(t.kind === 'revenue') earn[t.date] = 1;
+  });
+  cons.forEach(function(t){ spentOn[t.date] = (spentOn[t.date]||0) + t.amount; });
+
+  var total = cons.reduce(function(a,t){ return a + t.amount; }, 0);
+  var nMonth = Object.keys(monthsSeen).length || 1;
+  var days = Object.keys(spentOn);
+
+  /* 요일별 — 쓴 날만 본다. 안 쓴 날을 0으로 넣으면 습관이 안 보인다.
+     그리고 평균이 아니라 중앙값이다. 큰 지출 한 번에 요일 하나가 통째로 뒤집힌다 */
+  var dowV = [[],[],[],[],[],[],[]];
+  days.forEach(function(d){ dowV[fromISO(d).getDay()].push(spentOn[d]); });
+  var dowMed = dowV.map(median), dowN = dowV.map(function(v){ return v.length; });
+
+  /* 일한 날과 쉰 날 */
+  var workV = [], offV = [];
+  days.forEach(function(d){ (earn[d] ? workV : offV).push(spentOn[d]); });
+
+  /* 항목별 */
+  var byC = {};
+  cons.forEach(function(t){
+    var k = t.category || '기타';
+    if(!byC[k]) byC[k] = { v:0, n:0, ms:{}, per:{} };
+    byC[k].v += t.amount; byC[k].n++;
+    byC[k].ms[t.date.slice(0,7)] = 1;
+    byC[k].per[t.date.slice(0,7)] = (byC[k].per[t.date.slice(0,7)]||0) + t.amount;
+  });
+  var cats = Object.keys(byC).map(function(k){
+    var c = byC[k];
+    return { k:k, v:c.v, n:c.n, ms:Object.keys(c.ms).length, per:c.per,
+             avg:Math.round(c.v/c.n) };
+  }).sort(function(a,b){ return b.v - a.v; });
+
+  /* 티끌 — 건당은 작은데 쌓여서 큰 것 */
+  var dust = cats.filter(function(c){ return c.n >= 5 && c.avg <= 20000; })
+                 .sort(function(a,b){ return b.v - a.v; }).slice(0,4);
+
+  /* 숨은 정기지출 — 여러 달 연속, 달마다 한 번꼴, 금액이 고르면 구독일 가능성 */
+  var hidden = cats.filter(function(c){
+    if(c.ms < 3 || c.n > c.ms * 1.4) return false;
+    var vals = Object.keys(c.per).map(function(m){ return c.per[m]; });
+    var mean = vals.reduce(function(a,b){ return a+b; }, 0) / vals.length;
+    if(mean <= 0) return false;
+    var spread = Math.max.apply(null, vals) - Math.min.apply(null, vals);
+    if(spread > mean * 0.25) return false;
+    return !state.recurrings.some(function(r){
+      return r.name.indexOf(c.k) >= 0 || c.k.indexOf(r.name) >= 0; });
+  }).slice(0,3);
+
+  var big = cons.slice().sort(function(a,b){ return b.amount - a.amount; }).slice(0,5);
+
+  /* 달마다 얼마나 썼나 — 추세 */
+  var perMonth = {};
+  cons.forEach(function(t){ var m = t.date.slice(0,7); perMonth[m] = (perMonth[m]||0) + t.amount; });
+  var trend = Object.keys(perMonth).sort().map(function(m){ return { m:m, v:perMonth[m] }; });
+
+  return {
+    from:from, nMonth:nMonth, count:cons.length, total:total,
+    perMonth: Math.round(total / nMonth),
+    perDay: median(days.map(function(d){ return spentOn[d]; })),
+    spentDays: days.length,
+    med: median(cons.map(function(t){ return t.amount; })),
+    dowMed:dowMed, dowN:dowN,
+    workN:workV.length, offN:offV.length,
+    workAvg: median(workV), offAvg: median(offV),
+    cats:cats, dust:dust, hidden:hidden, big:big, trend:trend,
+    costTotal: costs.reduce(function(a,t){ return a + t.amount; }, 0)
+  };
+}
+
+function renderPattern(){
+  var a = analyzeSpend(PAT_W);
+  var box = document.getElementById('patBody');
+
+  if(a.count < 5){
+    box.innerHTML = '<div class="card"><div class="blank">소비 기록이 '+a.count+'건이에요<br>'+
+      '조금 더 쌓이면 패턴을 읽어드릴게요</div></div>';
+    return;
+  }
+
+  var h = '';
+
+  /* 1. 평소 얼마나 */
+  h += '<div class="card"><div class="chd"><span class="t">평소 얼마나 쓰나</span>'+
+       '<span class="s">'+a.count+'건 · '+a.nMonth+'개월</span></div>'+
+    '<div class="stats" style="grid-template-columns:repeat(3,1fr)">'+
+      '<div class="st"><div class="v">'+fmt(Math.round(a.perMonth/10000))+'만</div><div class="k">한 달</div></div>'+
+      '<div class="st"><div class="v">'+fmt(a.perDay)+'</div><div class="k">쓴 날 하루</div></div>'+
+      '<div class="st"><div class="v">'+fmt(a.med)+'</div><div class="k">한 번</div></div>'+
+    '</div>'+
+    '<div class="note" style="padding-top:0">'+a.nMonth+'개월 중 '+a.spentDays+'일에 소비 기록이 있습니다. '+
+    '<b>한 달</b>은 합계를 나눈 값이고 나머지 둘은 <b>중앙값</b>입니다 — 큰 지출 하나에 '+
+    '휘둘리지 않아 평소 씀씀이에 더 가깝습니다.</div></div>';
+
+  /* 2. 일한 날 vs 쉰 날 */
+  if(a.workN >= 3 && a.offN >= 3 && (a.workAvg || a.offAvg)){
+    var hi = Math.max(a.workAvg, a.offAvg) || 1;
+    var diff = a.offAvg && a.workAvg
+      ? Math.round((Math.max(a.workAvg,a.offAvg)/Math.min(a.workAvg,a.offAvg))*10)/10 : 0;
+    h += '<div class="card"><div class="chd"><span class="t">일한 날과 쉰 날</span>'+
+      '<span class="s">쓴 날 중앙값</span></div>'+
+      '<div class="cmp">'+
+        [['일한 날', a.workAvg, a.workN, 'var(--blue)'],
+         ['쉰 날',   a.offAvg,  a.offN,  'var(--red)']].map(function(r){
+          return '<div class="cr"><span class="k">'+r[0]+'<i>'+r[2]+'일</i></span>'+
+            '<div class="bar"><i style="width:'+(r[1]/hi*100).toFixed(1)+'%;background:'+r[3]+'"></i></div>'+
+            '<span class="v">'+fmt(r[1])+'</span></div>';
+        }).join('')+'</div>'+
+      '<div class="note" style="padding-top:0">'+
+        (diff >= 1.3
+          ? (a.offAvg > a.workAvg
+              ? '<b>쉰 날에 '+diff+'배</b> 더 씁니다. 시간이 나면 지갑이 열리는 편이에요.'
+              : '<b>일한 날에 '+diff+'배</b> 더 씁니다. 나가는 날 따라붙는 지출이 있는지 보세요 — 그중 일 때문에 쓰는 돈은 경비로 옮기면 순익이 정확해집니다.')
+          : '두 날의 씀씀이가 비슷합니다.')+'</div></div>';
+  }
+
+  /* 3. 요일 */
+  var dowAvg = a.dowMed;
+  var dhi = Math.max.apply(null, dowAvg) || 1;
+  if(a.spentDays >= 10){
+    var top = dowAvg.indexOf(dhi);
+    h += '<div class="card"><div class="chd"><span class="t">요일</span>'+
+      '<span class="s">쓴 날 중앙값</span></div>'+
+      '<div class="dow">'+dowAvg.map(function(v,i){
+        return '<div class="dc'+(i===top?' hi':'')+'">'+
+          '<div class="bw"><i style="height:'+(v/dhi*100).toFixed(1)+'%"></i></div>'+
+          '<div class="dl">'+DOW[i]+'</div></div>';
+      }).join('')+'</div>'+
+      '<div class="note" style="padding-top:0"><b>'+DOW[top]+'요일</b>에 가장 많이 씁니다 · 보통 '+
+      fmt(dhi)+'원</div></div>';
+  }
+
+  /* 4. 어디에 */
+  var chi = a.cats.length ? a.cats[0].v : 1;
+  h += '<div class="card"><div class="chd"><span class="t">어디에 쓰나</span>'+
+    '<span class="s">모두 '+fmt(a.total)+'원</span></div><div class="cmp">'+
+    a.cats.slice(0,8).map(function(c){
+      return '<div class="cr"><span class="k">'+esc(c.k)+'<i>'+c.n+'번</i></span>'+
+        '<div class="bar"><i style="width:'+(c.v/chi*100).toFixed(1)+'%"></i></div>'+
+        '<span class="v">'+fmt(c.v)+'<em>'+Math.round(c.v/a.total*100)+'%</em></span></div>';
+    }).join('')+'</div></div>';
+
+  /* 5. 티끌 */
+  if(a.dust.length){
+    h += '<div class="card"><div class="chd"><span class="t">작지만 자주</span>'+
+      '<span class="s">건당 2만원 이하</span></div><div class="cmp">'+
+      a.dust.map(function(c){
+        return '<div class="cr plain"><span class="k">'+esc(c.k)+
+          '<i>'+fmt(c.avg)+'원 × '+c.n+'번</i></span>'+
+          '<span class="v">'+fmt(c.v)+'</span></div>';
+      }).join('')+'</div>'+
+      '<div class="note" style="padding-top:0">한 번에는 작아서 안 보이지만 모으면 이만큼입니다.</div></div>';
+  }
+
+  /* 6. 숨은 정기지출 */
+  if(a.hidden.length){
+    h += '<div class="card"><div class="chd"><span class="t">구독일 수 있어요</span></div><div class="cmp">'+
+      a.hidden.map(function(c){
+        return '<div class="cr plain"><span class="k">'+esc(c.k)+
+          '<i>'+c.ms+'개월 연속 · 매달 '+fmt(Math.round(c.v/c.ms))+'원</i></span>'+
+          '<span class="v">'+fmt(c.v)+'</span></div>';
+      }).join('')+'</div>'+
+      '<div class="note" style="padding-top:0">달마다 비슷한 금액으로 빠지고 있습니다. '+
+      '<b>설정 → 구독</b>에 넣어두면 고정지출로 잡혀 하루치 부담까지 계산됩니다.</div></div>';
+  }
+
+  /* 7. 큰 지출 */
+  h += '<div class="card"><div class="chd"><span class="t">큰 지출</span></div><div class="rowlist">'+
+    a.big.map(function(t){
+      return '<button class="ent" data-edit="'+t.id+'"><span class="dot d-cons"></span>'+
+        '<span class="nm">'+esc(t.category)+'<small>'+t.date.replace(/-/g,'.')+
+        (t.memo ? ' · '+esc(t.memo) : '')+'</small></span>'+
+        '<span class="amt">'+signed(-t.amount)+'</span>'+
+        '<span class="go" aria-hidden="true">›</span></button>';
+    }).join('')+'</div></div>';
+
+  /* 8. 달별 추세 */
+  if(a.trend.length >= 2){
+    var thi = Math.max.apply(null, a.trend.map(function(x){ return x.v; })) || 1;
+    h += '<div class="card"><div class="chd"><span class="t">달마다</span></div>'+
+      '<div class="dow" style="padding:14px 22px 6px">'+a.trend.map(function(x){
+        return '<div class="dc"><div class="bw"><i style="height:'+(x.v/thi*100).toFixed(1)+'%"></i></div>'+
+          '<div class="dl">'+Number(x.m.slice(5))+'월</div></div>';
+      }).join('')+'</div>'+
+      '<div class="note" style="padding-top:0">가장 많이 쓴 달 '+fmt(thi)+'원</div></div>';
+  }
+
+  box.innerHTML = h;
+}
+
 /* ---------- 모으는 곳 ---------- */
 function renderPots(y, m){
   var card = document.getElementById('potCard');
@@ -1593,7 +1840,7 @@ function renderSettings(){
       '<div class="li"><span class="nm">하루당</span><span class="amt">'+fmt(dailyFixed())+'원</span></div></div>' : '';
 }
 
-function render(){ renderToday(); renderMonth(); renderSettings(); renderReminder(); }
+function render(){ renderToday(); renderMonth(); renderPattern(); renderSettings(); renderReminder(); }
 
 /* ---------- 시트 ---------- */
 var scrim = document.getElementById('scrim'), sheet = document.getElementById('sheet');
@@ -2500,6 +2747,11 @@ document.querySelector('.acts').addEventListener('click', function(e){
 document.getElementById('addQ').onclick = function(){ sheetPreset(null); };
 document.getElementById('addS').onclick = function(){ sheetSub(null); };
 document.getElementById('addP').onclick = function(){ sheetPot(null); };
+document.getElementById('pwSeg').addEventListener('click', function(e){
+  var b = e.target.closest('[data-w]'); if(!b) return;
+  this.querySelectorAll('[data-w]').forEach(function(x){ x.setAttribute('aria-pressed', x===b); });
+  PAT_W = Number(b.dataset.w); renderPattern();
+});
 document.addEventListener('click', function(e){
   var b = e.target.closest('[data-potedit]'); if(b) return sheetPot(b.dataset.potedit);
   if(e.target.closest('[data-assign]')) sheetAssign();
