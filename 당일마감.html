@@ -384,6 +384,49 @@ select.inp{font-weight:600;appearance:none}
   opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:80;white-space:nowrap;
   box-shadow:0 6px 20px rgba(0,0,0,.18)}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+/* ---------- 종이 ---------- */
+.paper{display:none}
+@media print{
+  .app,.scrim,.toast{display:none !important}
+  .paper{display:block}
+  body{background:#fff;color:#000;font-size:10pt}
+  @page{margin:14mm 12mm}
+}
+.pw{max-width:190mm;margin:0 auto;color:#000}
+.ph{border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:12px;
+  display:flex;align-items:baseline;justify-content:space-between}
+.ph h1{margin:0;font-size:19pt;font-weight:800;letter-spacing:-.04em}
+.ph .pm{font-size:8.5pt;color:#555}
+.psum{width:100%;border-collapse:collapse;margin-bottom:10px}
+.psum th{text-align:left;font-weight:600;padding:4px 0;font-size:10pt;width:80px}
+.psum td{text-align:right;font-weight:700;padding:4px 0;font-size:10.5pt;
+  font-variant-numeric:tabular-nums}
+.psum .tot th,.psum .tot td{border-top:1.5px solid #000;padding-top:6px;font-size:12pt;
+  font-weight:800}
+.pfacts{display:flex;gap:0;border:1px solid #bbb;border-radius:3px;margin-bottom:14px}
+.pfacts>div{flex:1;padding:6px 8px;text-align:center}
+.pfacts>div+div{border-left:1px solid #ddd}
+.pfacts span{display:block;font-size:7.5pt;color:#666}
+.pfacts b{font-size:10.5pt;font-weight:700}
+.psec{margin-bottom:12px;break-inside:avoid}
+.psec h2{margin:0 0 5px;font-size:10.5pt;font-weight:800;letter-spacing:-.03em;
+  border-bottom:1px solid #000;padding-bottom:3px}
+.psec h2 em{font-style:normal;font-weight:500;font-size:8.5pt;color:#666;float:right}
+.pcat{width:100%;border-collapse:collapse}
+.pcat th{text-align:left;font-weight:500;padding:2.5px 0;font-size:9.5pt}
+.pcat th i{font-style:normal;color:#777;font-size:8pt;margin-left:6px}
+.pcat td{text-align:right;font-weight:700;padding:2.5px 0;font-size:9.5pt;
+  font-variant-numeric:tabular-nums}
+.plist{width:100%;border-collapse:collapse;font-size:9pt}
+.plist thead th{text-align:left;font-weight:700;border-bottom:1px solid #000;
+  padding:3px 4px;font-size:8.5pt}
+.plist td{padding:2.5px 4px;border-bottom:1px solid #eee;
+  font-variant-numeric:tabular-nums}
+.plist .r{text-align:right;font-weight:600}
+.plist thead th.r{text-align:right}
+.plist tbody tr{break-inside:avoid}
+.pnote{font-size:8pt;color:#666;margin-top:8px;border-top:1px solid #ddd;padding-top:5px}
+
 .lines{display:flex;flex-direction:column;gap:8px}
 .ln{display:grid;grid-template-columns:80px 1fr 96px 30px;gap:6px;align-items:center}
 .ln .inp{padding:12px 11px;font-size:14px;border-radius:11px}
@@ -407,7 +450,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.9</span></div>
+    <div class="brand">당일 마감 <span class="ver">v3.0</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -491,6 +534,15 @@ select.inp{font-weight:600;appearance:none}
     <div class="card">
       <div class="chd"><span class="t">이번 달 전체 기록</span><span class="s" id="monCnt"></span></div>
       <div id="monList"></div>
+    </div>
+
+    <div class="card">
+      <div class="chd"><span class="t">이 달 정리해서 내보내기</span></div>
+      <div class="fld"><div class="stack">
+        <button class="btn pri" type="button" id="prtBtn">인쇄 · PDF로 저장</button>
+        <button class="btn" type="button" id="mcsvBtn">CSV 파일로 저장</button>
+      </div></div>
+      <div class="note" style="padding-top:0">인쇄를 누르면 이 달치만 A4 한 장 형식으로 정리해 보여줍니다. 인쇄 창에서 <b>PDF로 저장</b>을 고르면 파일이 됩니다.</div>
     </div>
   </section>
 
@@ -576,6 +628,8 @@ select.inp{font-weight:600;appearance:none}
     </div>
   </section>
 </div>
+
+<div class="paper" id="paper" aria-hidden="true"></div>
 
 <div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -1411,6 +1465,117 @@ function renderMonth(){
           }).join('') +'</div>';
       }).join('');
   }
+}
+
+/* ---------- 이 달 보고서 ----------
+   종이로 남기는 것과 화면으로 보는 것은 목적이 다르다.
+   화면은 훑는 용도라 카드로 나누지만, 종이는 한 장에 다 들어와야 한다. */
+function monthRows(y, m){
+  var pre = y+'-'+pad(m+1);
+  return state.txns.filter(function(t){ return t.date.indexOf(pre) === 0; })
+    .slice().sort(function(a,b){
+      return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.kind < b.kind ? -1 : 1); });
+}
+function monthCSV(y, m){
+  var t = monT(y, m), rows = [];
+  rows.push(['당일 마감 · '+y+'년 '+(m+1)+'월']);
+  rows.push([]);
+  rows.push(['구분','금액']);
+  rows.push(['수익', t.rev]);
+  rows.push(['경비', -t.cost]);
+  rows.push(['소비', -t.cons]);
+  rows.push(['고정지출', -t.fixed]);
+  rows.push(['저축', -t.save]);
+  rows.push(['남은 돈', t.net]);
+  rows.push([]);
+  rows.push(['날짜','요일','종류','항목','메모','금액']);
+  monthRows(y, m).forEach(function(x){
+    rows.push([x.date, DOW[fromISO(x.date).getDay()], KIND[x.kind]||x.kind,
+      x.category, x.memo||'', (x.kind==='revenue'?1:-1)*x.amount]);
+  });
+  return '\ufeff' + rows.map(function(r){
+    return r.map(function(v){
+      v = String(v == null ? '' : v);
+      return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+    }).join(',');
+  }).join('\r\n');
+}
+
+function buildReport(y, m){
+  var t = monT(y, m), list = monthRows(y, m);
+  var b = brief(y, m);
+
+  function grp(kind){
+    var by = {};
+    list.forEach(function(x){ if(x.kind===kind) by[x.category] = (by[x.category]||0) + x.amount; });
+    return Object.keys(by).map(function(k){ return { k:k, v:by[k] }; })
+      .sort(function(a,b2){ return b2.v - a.v; });
+  }
+
+  var h = '<div class="pw">';
+  h += '<div class="ph"><h1>'+y+'년 '+(m+1)+'월</h1>'+
+       '<div class="pm">당일 마감 · 출력 '+stamp()+'</div></div>';
+
+  h += '<table class="psum"><tbody>'+
+    [['수익', t.rev, 1],['경비', -t.cost],['소비', -t.cons],
+     ['고정지출', -t.fixed],['저축', -t.save]].map(function(r){
+      return '<tr><th>'+r[0]+'</th><td>'+signed(r[1])+'</td></tr>';
+    }).join('')+
+    '<tr class="tot"><th>남은 돈</th><td>'+signed(t.net)+'</td></tr>'+
+    '</tbody></table>';
+
+  h += '<div class="pfacts">'+
+    [['수익 있는 날', t.earnDays+'일'],
+     ['1회 평균', fmt(b.perEarn)+'원'],
+     ['경비율', (b.costRate===null?'–':b.costRate+'%')],
+     ['기록', list.length+'건']].map(function(x){
+      return '<div><span>'+x[0]+'</span><b>'+x[1]+'</b></div>'; }).join('')+'</div>';
+
+  [['consumption','소비'],['cost','경비'],['revenue','수익'],['saving','저축']].forEach(function(k){
+    var g = grp(k[0]);
+    if(!g.length) return;
+    h += '<div class="psec"><h2>'+k[1]+' 항목별</h2><table class="pcat"><tbody>'+
+      g.map(function(c){
+        return '<tr><th>'+esc(c.k)+'</th><td>'+fmt(c.v)+'</td></tr>'; }).join('')+
+      '</tbody></table></div>';
+  });
+
+  if(state.pots.length){
+    h += '<div class="psec"><h2>모으는 곳</h2><table class="pcat"><tbody>'+
+      state.pots.map(function(p){
+        var st = potStat(p);
+        var mine = list.filter(function(x){ return x.kind==='saving' && x.pot===p.id; })
+                       .reduce(function(a,x){ return a + x.amount; }, 0);
+        return '<tr><th>'+esc(p.name)+
+          '<i>'+(p.kind==='product' ? st.times+'/'+p.months+'회' : '자유')+
+          ' · 누적 '+fmt(st.paid)+'</i></th><td>'+(mine ? fmt(mine) : '–')+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }
+
+  h += '<div class="psec"><h2>전체 기록 <em>'+list.length+'건</em></h2>'+
+    '<table class="plist"><thead><tr><th>날짜</th><th>종류</th><th>항목</th>'+
+    '<th>메모</th><th class="r">금액</th></tr></thead><tbody>'+
+    (list.length
+      ? list.map(function(x){
+          return '<tr><td>'+Number(x.date.slice(8))+'('+DOW[fromISO(x.date).getDay()]+')</td>'+
+            '<td>'+KIND[x.kind]+'</td><td>'+esc(x.category)+'</td>'+
+            '<td>'+esc(x.memo||'')+'</td>'+
+            '<td class="r">'+signed((x.kind==='revenue'?1:-1)*x.amount)+'</td></tr>';
+        }).join('')
+      : '<tr><td colspan="5">기록이 없습니다</td></tr>')+
+    '</tbody></table></div>';
+
+  if(t.fixed > 0 && state.recurrings.length)
+    h += '<div class="pnote">고정지출 '+fmt(t.fixed)+'원은 등록된 구독에서 계산된 값이며 '+
+         '위 기록 목록에는 들어 있지 않습니다.</div>';
+
+  return h + '</div>';
+}
+
+function printMonth(){
+  var y = mon.getFullYear(), m = mon.getMonth();
+  document.getElementById('paper').innerHTML = buildReport(y, m);
+  setTimeout(function(){ try{ window.print(); }catch(e){ toast('인쇄를 열 수 없어요'); } }, 60);
 }
 
 /* ---------- 소비 패턴 ----------
@@ -2899,6 +3064,14 @@ document.addEventListener('click', function(e){
   if(e.target.closest('[data-assign]')) sheetAssign();
 });
 document.getElementById('csvBtn').onclick = sheetCsv;
+document.getElementById('prtBtn').onclick = printMonth;
+document.getElementById('mcsvBtn').onclick = function(){
+  var y = mon.getFullYear(), m = mon.getMonth();
+  var name = '당일마감-'+y+'-'+pad(m+1)+'.csv';
+  saveFile(name, monthCSV(y, m), 'text/csv', function(ok, msg){
+    toast(ok ? name+' 저장했어요' : (msg || '저장하지 못했어요'));
+  });
+};
 document.getElementById('syncBox').addEventListener('click', function(e){
   if(e.target.closest('#ckSave')){
     var v = document.getElementById('ckIn').value.trim();
