@@ -125,7 +125,7 @@ button{cursor:pointer}
 .li .nm i{font-style:normal;color:var(--faint);font-weight:500;font-size:12px;margin-left:5px}
 .li .amt{margin-left:auto;font-size:14.5px;font-weight:700;letter-spacing:-.03em;color:var(--ink)}
 .li .amt.rev{color:var(--blue)}
-.li.moved{margin-top:6px;padding-top:10px;border-top:1px solid var(--line)}
+.li .amt.save{color:var(--teal)}
 .d-rev{background:var(--blue)} .d-cost{background:var(--amber)}
 .d-cons{background:var(--red)} .d-fix{background:var(--violet)}
 .d-save{background:var(--teal)}
@@ -188,6 +188,8 @@ button{cursor:pointer}
 
 /* ---------- stats ---------- */
 .stats{display:grid;grid-template-columns:repeat(3,1fr);padding:22px 10px}
+.stats:has(.st:nth-child(4)){grid-template-columns:repeat(2,1fr);row-gap:20px}
+.stats:has(.st:nth-child(4)) .st:nth-child(odd){box-shadow:none}
 .st{text-align:center;padding:0 6px}
 .st+.st{box-shadow:-1px 0 0 var(--line)}
 .st .v{font-size:20px;font-weight:800;letter-spacing:-.05em}
@@ -342,7 +344,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.4</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.5</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -777,7 +779,7 @@ function exportCSV(){
   state.txns.slice().sort(function(a,b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; })
     .forEach(function(t){
       rows.push([t.date, KIND[t.kind]||t.kind, t.category,
-                 MOVED[t.kind] ? t.amount : (t.kind==='revenue'?1:-1)*t.amount,
+                 (t.kind==='revenue'?1:-1)*t.amount,
                  t.memo||'']);
     });
   return '﻿' + rows.map(function(r){
@@ -889,15 +891,23 @@ function setAmt(id, n){
 var KIND = { revenue:'수익', cost:'경비', consumption:'소비', saving:'저축' };
 /* 저축은 쓴 돈이 아니라 옮긴 돈이다. 통장에서는 빠지지만 내 것 그대로다.
    그래서 순익(수익−경비−소비−고정)에서 빼지 않고 따로 보여준다. */
-var MOVED = { saving:1 };
+var SAVED = { saving:1 };
 function entAmt(kind, amount){
-  if(MOVED[kind]) return '<span class="amt save">→'+fmt(amount)+'</span>';
-  return '<span class="amt'+(kind==='revenue'?' rev':'')+'">'+
+  return '<span class="amt'+(kind==='revenue'?' rev':SAVED[kind]?' save':'')+'">'+
     signed((kind==='revenue'?1:-1)*amount)+'</span>';
+}
+/* 지금까지 모은 돈 — 이게 저축의 값어치다 */
+function savedTotal(){
+  return state.txns.reduce(function(s,t){ return s + (t.kind==='saving' ? t.amount : 0); }, 0);
+}
+function savedMonths(){
+  var ms = {};
+  state.txns.forEach(function(t){ if(t.kind==='saving') ms[t.date.slice(0,7)] = 1; });
+  return Object.keys(ms).length;
 }
 var DOTC = { revenue:'d-rev', cost:'d-cost', consumption:'d-cons', fixed:'d-fix', saving:'d-save' };
 var HINT = { revenue:'벌어들인 돈', cost:'벌기 위해 쓴 돈', consumption:'나를 위해 쓴 돈',
-             saving:'써 버린 게 아니라 옮겨 둔 돈' };
+             saving:'잃은 건 아니지만 지금 쓸 수는 없는 돈' };
 
 function annual(r){
   if(r.cycle==='yearly') return r.amount;
@@ -919,12 +929,11 @@ function monthFixed(y,m){
 }
 function presetNet(p){
   return p.lines.reduce(function(s,l){
-    if(MOVED[l.kind]) return s;                 /* 옮긴 돈은 손익이 아니다 */
     return s + (l.kind==='revenue' ? l.amount : -l.amount);
   }, 0);
 }
 function presetSave(p){
-  return p.lines.reduce(function(s,l){ return s + (MOVED[l.kind] ? l.amount : 0); }, 0);
+  return p.lines.reduce(function(s,l){ return s + (SAVED[l.kind] ? l.amount : 0); }, 0);
 }
 function onDate(d){ return state.txns.filter(function(t){ return t.date===d; }); }
 function sumK(l,k){ return l.filter(function(t){ return t.kind===k; })
@@ -933,8 +942,9 @@ function sumK(l,k){ return l.filter(function(t){ return t.kind===k; })
 function dayT(d){
   var l = onDate(d), fx = dailyFixed();
   var rev = sumK(l,'revenue'), cost = sumK(l,'cost'), cons = sumK(l,'consumption');
-  return { rev:rev, cost:cost, cons:cons, fixed:fx, save:sumK(l,'saving'),
-           net:rev-cost-cons-fx, list:l };
+  var save = sumK(l,'saving');
+  return { rev:rev, cost:cost, cons:cons, fixed:fx, save:save,
+           net:rev-cost-cons-fx-save, list:l };
 }
 function monT(y,m){
   var pre = y+'-'+pad(m+1);
@@ -942,8 +952,9 @@ function monT(y,m){
   var rev = sumK(l,'revenue'), cost = sumK(l,'cost'), cons = sumK(l,'consumption');
   var fixed = monthFixed(y,m), days = {};
   l.forEach(function(t){ if(t.kind==='revenue') days[t.date] = 1; });
-  return { rev:rev, cost:cost, cons:cons, fixed:fixed, save:sumK(l,'saving'),
-           net:rev-cost-cons-fixed, earnDays:Object.keys(days).length, list:l };
+  var save = sumK(l,'saving');
+  return { rev:rev, cost:cost, cons:cons, fixed:fixed, save:save,
+           net:rev-cost-cons-fixed-save, earnDays:Object.keys(days).length, list:l };
 }
 /* 평균 1회 순수입 — 기록에서 자동으로 뽑는다 (수익 − 그에 딸린 경비) */
 function perEarn(){
@@ -961,21 +972,17 @@ function perEarn(){
 
 /* ---------- 렌더: 오늘 ---------- */
 function splitHTML(t, fixLabel){
-  var html = [['revenue','수익','',t.rev],
+  var rows = [['revenue','수익','',t.rev],
           ['cost','경비','',-t.cost],
           ['consumption','소비','',-t.cons],
-          ['fixed','고정지출',fixLabel,-t.fixed]].map(function(r){
+          ['fixed','고정지출',fixLabel,-t.fixed]];
+  if(t.save > 0) rows.push(['saving','저축','모아 둔 곳으로',-t.save]);
+  return rows.map(function(r){
     return '<div class="li"><span class="dot '+DOTC[r[0]]+'"></span>'+
       '<span class="nm">'+r[1]+(r[2]?'<i>'+r[2]+'</i>':'')+'</span>'+
-      '<span class="amt'+(r[0]==='revenue'?' rev':'')+'">'+signed(r[3])+'</span></div>';
+      '<span class="amt'+(r[0]==='revenue'?' rev':r[0]==='saving'?' save':'')+'">'+
+      signed(r[3])+'</span></div>';
   }).join('');
-  /* 저축은 순익 밖이다. 선 아래에 따로 세운다 */
-  if(t.save > 0){
-    html += '<div class="li moved"><span class="dot d-save"></span>'+
-      '<span class="nm">저축<i>순익에 포함 안 됨</i></span>'+
-      '<span class="amt save">→'+fmt(t.save)+'</span></div>';
-  }
-  return html;
 }
 
 function renderToday(){
@@ -993,7 +1000,7 @@ function renderToday(){
         '<div class="li"><span class="dot d-cost"></span><span class="nm">경비</span><span class="ds">벌기 위해 쓴 돈</span></div>'+
         '<div class="li"><span class="dot d-cons"></span><span class="nm">소비</span><span class="ds">나를 위해 쓴 돈</span></div>'+
         '<div class="li"><span class="dot d-fix"></span><span class="nm">고정지출</span><span class="ds">매달 나가는 구독</span></div>'+
-        '<div class="li"><span class="dot d-save"></span><span class="nm">저축</span><span class="ds">쓴 게 아니라 옮긴 돈</span></div>'+
+        '<div class="li"><span class="dot d-save"></span><span class="nm">저축</span><span class="ds">손닿지 않는 곳으로</span></div>'+
       '</div></div>';
   }else{
     var t = dayT(key);
@@ -1021,8 +1028,8 @@ function renderToday(){
     ? '<div class="quick">' + state.presets.map(function(p){
         var net = presetNet(p), sv = presetSave(p);
         return '<button class="qbtn" data-q="'+p.id+'"><div class="qn">'+esc(p.name)+'</div>'+
-          '<div class="qs">'+(net||!sv?signed(net)+'원':'')+
-          (sv?(net?' · ':'')+'→'+fmt(sv)+'원':'')+'</div></button>';
+          '<div class="qs">'+signed(net)+'원'+
+          (sv && net !== -sv ? ' · 그중 저축 '+fmt(sv):'')+'</div></button>';
       }).join('') + '<button class="qbtn qadd" data-qadd>＋</button></div>'
     : '<div class="quick"><button class="qbtn qadd" data-qadd style="padding:13px 18px">＋ 자주 쓰는 묶음 만들기</button></div>';
 }
@@ -1059,6 +1066,8 @@ function brief(y, m){
     costRate: pct(t.cost, t.rev),
     prevCostRate: pct(pt.cost, pt.rev),
     saveRate: pct(t.save, t.rev),
+    netBefore: t.net + t.save,
+    saved: savedTotal(), savedMonths: savedMonths(),
     topCons: topCat(byCat(t.list, 'consumption'), 3),
     notes: []
   };
@@ -1082,7 +1091,7 @@ function brief(y, m){
   /* 이번 달 가장 큰 지출 한 건 */
   var big = null;
   t.list.forEach(function(x){
-    if(x.kind === 'revenue' || MOVED[x.kind]) return;
+    if(x.kind === 'revenue' || SAVED[x.kind]) return;
     if(!big || x.amount > big.amount) big = x;
   });
   if(big && big.amount >= 200000)
@@ -1104,16 +1113,16 @@ function brief(y, m){
     if(fr >= 15) b.notes.push({ t:'up', s:'고정지출이 수익의 <b>'+fr+'%</b> 예요 — 구독을 한 번 훑어볼 때입니다' });
   }
 
-  /* 순익보다 많이 저축했다면 모자란 만큼은 전에 모아둔 돈에서 나간 것이다 */
-  if(t.save > 0 && t.save > t.net)
-    b.notes.push({ t:'thin', s:'저축이 이번 달 순익보다 '+man(t.save - Math.max(t.net,0))+
-      ' 많아요 — 그만큼은 전에 모아둔 돈에서 나갔습니다' });
+  /* 저축 때문에 마이너스가 된 달은 그렇게 말해줘야 한다 */
+  if(t.save > 0 && t.net < 0 && b.netBefore >= 0)
+    b.notes.push({ t:'thin', s:'저축을 빼기 전에는 '+man(b.netBefore)+' 남았어요 — '+
+      '저축 '+fmt(t.save)+'원이 커서 이번 달은 '+man(-t.net)+' 모자랍니다' });
 
   /* 기록이 성긴 달은 숫자를 믿기 어렵다 */
   var days = {};
   t.list.forEach(function(x){ days[x.date] = 1; });
   var kept = Object.keys(days).length;
-  if(t.list.length && kept < gone * 0.4)
+  if(t.list.length && gone >= 15 && kept <= Math.max(5, gone * 0.2))
     b.notes.push({ t:'thin', s:gone+'일 중 <b>'+kept+'일</b>만 기록됐어요 — 빠진 날이 많으면 이 숫자도 실제와 멀어집니다' });
 
   return b;
@@ -1153,8 +1162,10 @@ function briefHTML(y, m){
         b.topCons.length ? b.topCons.map(function(c){ return esc(c.k)+' '+fmt(c.v); }).join(' · ') : '');
   h += row('고정지출', fmt(t.fixed)+'원', '');
   if(t.save > 0)
-    h += row('저축', '→'+fmt(t.save)+'원',
-          b.saveRate !== null ? '수익의 '+b.saveRate+'%' : '');
+    h += row('저축', '−'+fmt(t.save)+'원',
+          (b.saveRate !== null ? '수익의 '+b.saveRate+'% · ' : '')+'모은 돈 '+fmt(b.saved));
+  else if(b.saved > 0)
+    h += row('저축', '0원', '지금까지 모은 돈 '+fmt(b.saved)+'원');
 
   if(b.notes.length)
     h += '<div class="bfn">'+b.notes.map(function(x){
@@ -1195,7 +1206,7 @@ function renderMonth(){
       '<div class="sub">여유 '+fmt(-gap)+'원</div>'+
       '<div class="gbar"><i style="width:100%"></i></div>';
   }else{
-    var total = t.cost + t.cons + t.fixed;
+    var total = t.cost + t.cons + t.fixed + t.save;
     var done = total > 0 ? Math.max(0, Math.min(100, (t.rev/total)*100)) : 0;
     g.innerHTML = '<div class="msg"><b>'+Math.ceil(gap/pe)+'번</b>만 더 벌면<br>이번 달 지출을 다 메워요</div>'+
       '<div class="sub">남은 '+fmt(gap)+'원 · 평균 1회 '+fmt(pe)+'원</div>'+
@@ -1205,14 +1216,21 @@ function renderMonth(){
   document.getElementById('monStats').innerHTML =
     '<div class="st"><div class="v">'+t.earnDays+'</div><div class="k">수익 있는 날</div></div>'+
     '<div class="st"><div class="v">'+(pe>0?fmt(pe/10000)+'만':'–')+'</div><div class="k">평균 1회 수입</div></div>'+
-    '<div class="st"><div class="v">'+fmt(dailyFixed())+'</div><div class="k">하루 고정비</div></div>';
+    '<div class="st"><div class="v">'+fmt(dailyFixed())+'</div><div class="k">하루 고정비</div></div>'+
+    (function(){
+      var sv = savedTotal(); if(!sv) return '';
+      var mo = savedMonths();
+      return '<div class="st"><div class="v" style="color:var(--teal)">'+
+        (sv>=10000 ? fmt(Math.round(sv/10000))+'만' : fmt(sv))+'</div>'+
+        '<div class="k">모은 돈'+(mo>1 ? ' · 월평균 '+fmt(Math.round(sv/mo/10000))+'만' : '')+'</div></div>';
+    })();
 
   var first = new Date(y,m,1).getDay(), n = dim(y,m), fx = dailyFixed();
   var html = DOW.map(function(x){ return '<div class="dw">'+x+'</div>'; }).join('');
   for(var i=0;i<first;i++) html += '<div class="cel void"></div>';
   for(var day=1; day<=n; day++){
     var k = y+'-'+pad(m+1)+'-'+pad(day), l = onDate(k);
-    var net = sumK(l,'revenue') - sumK(l,'cost') - sumK(l,'consumption') - fx;
+    var net = sumK(l,'revenue') - sumK(l,'cost') - sumK(l,'consumption') - sumK(l,'saving') - fx;
     var earned = l.some(function(x){ return x.kind==='revenue'; });
     var past = k <= TODAY, any = l.length || fx > 0;
     html += '<button class="cel'+(k===TODAY?' now':'')+(earned?' mark':'')+
@@ -1231,7 +1249,7 @@ function renderMonth(){
     document.getElementById('monList').innerHTML = Object.keys(byDate).sort().reverse()
       .map(function(k){
         var l = byDate[k];
-        var net = sumK(l,'revenue') - sumK(l,'cost') - sumK(l,'consumption');
+        var net = sumK(l,'revenue') - sumK(l,'cost') - sumK(l,'consumption') - sumK(l,'saving');
         return '<div class="dgrp">'+Number(k.slice(8,10))+'일 ('+DOW[fromISO(k).getDay()]+')'+
           '<span class="'+cls(net)+'">'+signed(net)+'</span></div>'+
           '<div class="rowlist">'+ l.map(function(x){
@@ -1345,8 +1363,7 @@ function renderSettings(){
         var net = presetNet(p), sv = presetSave(p);
         return '<button class="srow" data-qedit="'+p.id+'">'+
           '<span class="nm">'+esc(p.name)+'<small>'+p.lines.length+'개 항목 · 눌러서 수정</small></span>'+
-          '<span class="amt '+cls(net)+'">'+(net||!sv?signed(net):'')+
-            (sv?(net?' ':'')+'→'+fmt(sv):'')+'</span>'+
+          '<span class="amt '+cls(net)+'">'+signed(net)+'</span>'+
           '<span class="go" aria-hidden="true">›</span></button>';
       }).join('')
     : '<div class="blank">아직 만든 묶음이 없어요</div>';
