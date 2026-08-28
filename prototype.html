@@ -11,6 +11,7 @@
   --line:#F0F1F4; --line-2:#E6E8EC;
   --blue:#2D6FF7; --blue-soft:#EDF3FF;
   --amber:#E08700; --red:#EC4756; --red-soft:#FDEDEE; --violet:#7C5CF0;
+  --teal:#0E9F6E;
   --pos:#2D6FF7; --neg:#EC4756; --white:#FFFFFF; --track:#E6E8ED;
   --font:'Pretendard','Gothic A1','Apple SD Gothic Neo','Malgun Gothic',system-ui,-apple-system,sans-serif;
   --shell:480px; --tab:60px;
@@ -111,13 +112,16 @@ button{cursor:pointer}
 .li .nm i{font-style:normal;color:var(--faint);font-weight:500;font-size:12px;margin-left:5px}
 .li .amt{margin-left:auto;font-size:14.5px;font-weight:700;letter-spacing:-.03em;color:var(--ink)}
 .li .amt.rev{color:var(--blue)}
+.li.moved{margin-top:6px;padding-top:10px;border-top:1px solid var(--line)}
 .d-rev{background:var(--blue)} .d-cost{background:var(--amber)}
 .d-cons{background:var(--red)} .d-fix{background:var(--violet)}
+.d-save{background:var(--teal)}
+.li .amt.save,.ent .amt.save{color:var(--teal)}
 .pos{color:var(--pos)} .neg{color:var(--neg)} .zero{color:var(--faint)}
 
 /* ---------- 액션 바 ---------- */
-.acts{display:grid;grid-template-columns:repeat(3,1fr)}
-.act{border:0;background:transparent;padding:19px 4px;font-size:15px;font-weight:700;
+.acts{display:grid;grid-template-columns:repeat(4,1fr)}
+.act{border:0;background:transparent;padding:19px 2px;font-size:14px;font-weight:700;
   letter-spacing:-.03em;color:var(--ink);display:flex;align-items:center;justify-content:center;gap:6px}
 .act+.act{box-shadow:-1px 0 0 var(--line)}
 .act:active{background:var(--sunk)}
@@ -125,6 +129,7 @@ button{cursor:pointer}
 .act[data-kind="revenue"] .p{color:var(--blue)}
 .act[data-kind="cost"] .p{color:var(--amber)}
 .act[data-kind="consumption"] .p{color:var(--red)}
+.act[data-kind="saving"] .p{color:var(--teal)}
 
 /* ---------- 빠른 기록 ---------- */
 .qlbl{font-size:12.5px;font-weight:600;color:var(--muted);padding:12px 6px 2px;letter-spacing:-.02em}
@@ -298,7 +303,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.1</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.2</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -323,6 +328,7 @@ select.inp{font-weight:600;appearance:none}
         <button class="act" data-kind="revenue"><span class="p">+</span>수익</button>
         <button class="act" data-kind="cost"><span class="p">+</span>경비</button>
         <button class="act" data-kind="consumption"><span class="p">+</span>소비</button>
+        <button class="act" data-kind="saving"><span class="p">+</span>저축</button>
       </div>
     </div>
 
@@ -651,7 +657,8 @@ function uid(){ return Math.random().toString(36).slice(2,10); }
 function baseCats(){ return {
   revenue:     ['일당','급여','판매','수수료','기타'],
   cost:        ['교통비','재료비','장비','수수료','식사','기타'],
-  consumption: ['식사','생활용품','의류','문화','기타']
+  consumption: ['식사','생활용품','의류','문화','기타'],
+  saving:      ['예금','적금','투자','비상금','기타']
 }; }
 function defaults(){ return { txns:[], presets:[], recurrings:[], cats:baseCats(), rules:[],
   sync:{ at:0, tip:true, error:'', errKind:'', count:0 } }; }
@@ -663,7 +670,7 @@ var state = (function(){
   if(!raw) return defaults();
   try{
     var p = JSON.parse(raw), c = baseCats();
-    if(p.cats) ['revenue','cost','consumption'].forEach(function(k){
+    if(p.cats) ['revenue','cost','consumption','saving'].forEach(function(k){
       if(Array.isArray(p.cats[k]) && p.cats[k].length) c[k] = p.cats[k];
     });
     return { txns:       Array.isArray(p.txns)       ? p.txns       : [],
@@ -726,7 +733,8 @@ function exportCSV(){
   state.txns.slice().sort(function(a,b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; })
     .forEach(function(t){
       rows.push([t.date, KIND[t.kind]||t.kind, t.category,
-                 (t.kind==='revenue'?1:-1)*t.amount, t.memo||'']);
+                 MOVED[t.kind] ? t.amount : (t.kind==='revenue'?1:-1)*t.amount,
+                 t.memo||'']);
     });
   return '﻿' + rows.map(function(r){
     return r.map(function(v){
@@ -834,9 +842,18 @@ function setAmt(id, n){
 }
 
 /* ---------- 계산 ---------- */
-var KIND = { revenue:'수익', cost:'경비', consumption:'소비' };
-var DOTC = { revenue:'d-rev', cost:'d-cost', consumption:'d-cons', fixed:'d-fix' };
-var HINT = { revenue:'벌어들인 돈', cost:'벌기 위해 쓴 돈', consumption:'나를 위해 쓴 돈' };
+var KIND = { revenue:'수익', cost:'경비', consumption:'소비', saving:'저축' };
+/* 저축은 쓴 돈이 아니라 옮긴 돈이다. 통장에서는 빠지지만 내 것 그대로다.
+   그래서 순익(수익−경비−소비−고정)에서 빼지 않고 따로 보여준다. */
+var MOVED = { saving:1 };
+function entAmt(kind, amount){
+  if(MOVED[kind]) return '<span class="amt save">→'+fmt(amount)+'</span>';
+  return '<span class="amt'+(kind==='revenue'?' rev':'')+'">'+
+    signed((kind==='revenue'?1:-1)*amount)+'</span>';
+}
+var DOTC = { revenue:'d-rev', cost:'d-cost', consumption:'d-cons', fixed:'d-fix', saving:'d-save' };
+var HINT = { revenue:'벌어들인 돈', cost:'벌기 위해 쓴 돈', consumption:'나를 위해 쓴 돈',
+             saving:'써 버린 게 아니라 옮겨 둔 돈' };
 
 function annual(r){
   if(r.cycle==='yearly') return r.amount;
@@ -856,6 +873,15 @@ function monthFixed(y,m){
     return s + ((r.billingMonth||1) === m+1 ? r.amount : 0);
   }, 0);
 }
+function presetNet(p){
+  return p.lines.reduce(function(s,l){
+    if(MOVED[l.kind]) return s;                 /* 옮긴 돈은 손익이 아니다 */
+    return s + (l.kind==='revenue' ? l.amount : -l.amount);
+  }, 0);
+}
+function presetSave(p){
+  return p.lines.reduce(function(s,l){ return s + (MOVED[l.kind] ? l.amount : 0); }, 0);
+}
 function onDate(d){ return state.txns.filter(function(t){ return t.date===d; }); }
 function sumK(l,k){ return l.filter(function(t){ return t.kind===k; })
   .reduce(function(s,t){ return s + t.amount; }, 0); }
@@ -863,7 +889,8 @@ function sumK(l,k){ return l.filter(function(t){ return t.kind===k; })
 function dayT(d){
   var l = onDate(d), fx = dailyFixed();
   var rev = sumK(l,'revenue'), cost = sumK(l,'cost'), cons = sumK(l,'consumption');
-  return { rev:rev, cost:cost, cons:cons, fixed:fx, net:rev-cost-cons-fx, list:l };
+  return { rev:rev, cost:cost, cons:cons, fixed:fx, save:sumK(l,'saving'),
+           net:rev-cost-cons-fx, list:l };
 }
 function monT(y,m){
   var pre = y+'-'+pad(m+1);
@@ -871,8 +898,8 @@ function monT(y,m){
   var rev = sumK(l,'revenue'), cost = sumK(l,'cost'), cons = sumK(l,'consumption');
   var fixed = monthFixed(y,m), days = {};
   l.forEach(function(t){ if(t.kind==='revenue') days[t.date] = 1; });
-  return { rev:rev, cost:cost, cons:cons, fixed:fixed, net:rev-cost-cons-fixed,
-           earnDays:Object.keys(days).length, list:l };
+  return { rev:rev, cost:cost, cons:cons, fixed:fixed, save:sumK(l,'saving'),
+           net:rev-cost-cons-fixed, earnDays:Object.keys(days).length, list:l };
 }
 /* 평균 1회 순수입 — 기록에서 자동으로 뽑는다 (수익 − 그에 딸린 경비) */
 function perEarn(){
@@ -890,7 +917,7 @@ function perEarn(){
 
 /* ---------- 렌더: 오늘 ---------- */
 function splitHTML(t, fixLabel){
-  return [['revenue','수익','',t.rev],
+  var html = [['revenue','수익','',t.rev],
           ['cost','경비','',-t.cost],
           ['consumption','소비','',-t.cons],
           ['fixed','고정지출',fixLabel,-t.fixed]].map(function(r){
@@ -898,6 +925,13 @@ function splitHTML(t, fixLabel){
       '<span class="nm">'+r[1]+(r[2]?'<i>'+r[2]+'</i>':'')+'</span>'+
       '<span class="amt'+(r[0]==='revenue'?' rev':'')+'">'+signed(r[3])+'</span></div>';
   }).join('');
+  /* 저축은 순익 밖이다. 선 아래에 따로 세운다 */
+  if(t.save > 0){
+    html += '<div class="li moved"><span class="dot d-save"></span>'+
+      '<span class="nm">저축<i>순익에 포함 안 됨</i></span>'+
+      '<span class="amt save">→'+fmt(t.save)+'</span></div>';
+  }
+  return html;
 }
 
 function renderToday(){
@@ -915,6 +949,7 @@ function renderToday(){
         '<div class="li"><span class="dot d-cost"></span><span class="nm">경비</span><span class="ds">벌기 위해 쓴 돈</span></div>'+
         '<div class="li"><span class="dot d-cons"></span><span class="nm">소비</span><span class="ds">나를 위해 쓴 돈</span></div>'+
         '<div class="li"><span class="dot d-fix"></span><span class="nm">고정지출</span><span class="ds">매달 나가는 구독</span></div>'+
+        '<div class="li"><span class="dot d-save"></span><span class="nm">저축</span><span class="ds">쓴 게 아니라 옮긴 돈</span></div>'+
       '</div></div>';
   }else{
     var t = dayT(key);
@@ -933,17 +968,17 @@ function renderToday(){
     ? '<div class="rowlist">' + list.map(function(x){
         return '<button class="ent" data-edit="'+x.id+'"><span class="dot '+DOTC[x.kind]+'"></span>'+
           '<span class="nm">'+esc(x.category)+'<small>'+esc(x.memo || KIND[x.kind])+'</small></span>'+
-          '<span class="amt'+(x.kind==='revenue'?' rev':'')+'">'+
-            signed((x.kind==='revenue'?1:-1)*x.amount)+'</span>'+
+          entAmt(x.kind, x.amount)+
           '<span class="go" aria-hidden="true">›</span></button>';
       }).join('') + '</div>'
     : '<div class="blank">위에서 수익 · 경비 · 소비를 눌러<br>오늘 기록을 시작하세요</div>';
 
   document.getElementById('quickWrap').innerHTML = state.presets.length
     ? '<div class="quick">' + state.presets.map(function(p){
-        var net = p.lines.reduce(function(s,l){ return s + (l.kind==='revenue'?l.amount:-l.amount); }, 0);
+        var net = presetNet(p), sv = presetSave(p);
         return '<button class="qbtn" data-q="'+p.id+'"><div class="qn">'+esc(p.name)+'</div>'+
-          '<div class="qs">'+signed(net)+'원</div></button>';
+          '<div class="qs">'+(net||!sv?signed(net)+'원':'')+
+          (sv?(net?' · ':'')+'→'+fmt(sv)+'원':'')+'</div></button>';
       }).join('') + '<button class="qbtn qadd" data-qadd>＋</button></div>'
     : '<div class="quick"><button class="qbtn qadd" data-qadd style="padding:13px 18px">＋ 자주 쓰는 묶음 만들기</button></div>';
 }
@@ -1017,8 +1052,7 @@ function renderMonth(){
           '<div class="rowlist">'+ l.map(function(x){
             return '<button class="ent" data-edit="'+x.id+'"><span class="dot '+DOTC[x.kind]+'"></span>'+
               '<span class="nm">'+esc(x.category)+'<small>'+esc(x.memo || KIND[x.kind])+'</small></span>'+
-              '<span class="amt'+(x.kind==='revenue'?' rev':'')+'">'+
-                signed((x.kind==='revenue'?1:-1)*x.amount)+'</span>'+
+              entAmt(x.kind, x.amount)+
               '<span class="go" aria-hidden="true">›</span></button>';
           }).join('') +'</div>';
       }).join('');
@@ -1114,7 +1148,7 @@ function renderSettings(){
     : '';
 
   document.getElementById('catList').innerHTML =
-    ['revenue','cost','consumption'].map(function(k){
+    ['revenue','cost','consumption','saving'].map(function(k){
       return '<div class="catgrp"><div class="h">'+KIND[k]+'</div><div class="chips">'+
         state.cats[k].map(function(c){
           return '<button data-catdel="'+esc(c)+'" data-k="'+k+'">'+esc(c)+'<b>×</b></button>';
@@ -1123,10 +1157,11 @@ function renderSettings(){
 
   document.getElementById('qList').innerHTML = state.presets.length
     ? state.presets.map(function(p){
-        var net = p.lines.reduce(function(s,l){ return s + (l.kind==='revenue'?l.amount:-l.amount); }, 0);
+        var net = presetNet(p), sv = presetSave(p);
         return '<button class="srow" data-qedit="'+p.id+'">'+
           '<span class="nm">'+esc(p.name)+'<small>'+p.lines.length+'개 항목</small></span>'+
-          '<span class="amt '+cls(net)+'">'+signed(net)+'</span></button>';
+          '<span class="amt '+cls(net)+'">'+(net||!sv?signed(net):'')+
+            (sv?(net?' ':'')+'→'+fmt(sv):'')+'</span></button>';
       }).join('')
     : '<div class="blank">아직 만든 묶음이 없어요</div>';
 
@@ -1194,7 +1229,7 @@ function sheetEntry(kind, editId, pre){
 
   openSheet(ed ? '기록 수정' : KIND[kind]+' 기록',
     (ed ? dLabelOf(ed.date) : dLabel()) + ' · ' + HINT[kind],
-    '<div class="seg" id="kSeg">'+ ['revenue','cost','consumption'].map(function(k){
+    '<div class="seg" id="kSeg">'+ ['revenue','cost','consumption','saving'].map(function(k){
       return '<button type="button" data-k="'+k+'" aria-pressed="'+(k===kind)+'">'+KIND[k]+'</button>';
     }).join('') +'</div>'+
 
@@ -1343,7 +1378,7 @@ function sheetPreset(id){
 
   function lineHTML(l,i){
     return '<div class="ln" data-i="'+i+'">'+
-      '<select class="inp" data-f="kind">'+ ['revenue','cost','consumption'].map(function(k){
+      '<select class="inp" data-f="kind">'+ ['revenue','cost','consumption','saving'].map(function(k){
         return '<option value="'+k+'"'+(k===l.kind?' selected':'')+'>'+KIND[k]+'</option>'; }).join('') +'</select>'+
       '<input class="inp" data-f="category" type="text" value="'+esc(l.category)+'" placeholder="항목 이름">'+
       '<input class="inp" data-f="amount" type="number" value="'+(l.amount||'')+'" placeholder="0" inputmode="numeric">'+
@@ -1730,9 +1765,11 @@ function buildRows(an){
    - 카드대금 결제: 이미 소비로 잡은 결제들을 한꺼번에 갚는 것
    둘 다 그대로 두면 같은 돈을 두 번 세게 된다. */
 var XFER_IN  = /ATM|CD기|현금\s*입금|무통장|자동입금기/i;
+var SAVE_KW  = /예금|적금|저축|청약|펀드|ISA|IRP|연금|CMA|증권\s*입금|투자/i;
 var XFER_ANY = /카드\s*대금|카드값|청구\s*금액|결제대금|저금통|모으기|내\s*계좌|계좌\s*이동|잔액\s*이동/i;
 function looksTransfer(desc, income){
   if(XFER_ANY.test(desc)) return true;
+  if(income && SAVE_KW.test(desc)) return true;   /* 예금 해지·펀드 환매 등 되돌아온 돈 */
   return !!income && XFER_IN.test(desc);
 }
 
@@ -1795,6 +1832,7 @@ function startReview(text){
       var rl = ruleFor(r.desc);
       if(rl) return rl.kind;
       if(r.desc.indexOf('[취소]') === 0) return 'skip';
+      if(!r.income && SAVE_KW.test(r.desc)) return 'saving';
       if(looksTransfer(r.desc, r.income)) return 'skip';
       return r.income ? 'revenue' : 'consumption';
     });
@@ -1820,7 +1858,8 @@ function startReview(text){
   }
 
   function paint(){
-    var dup = 0, xfer = 0, canc = 0, maybe = 0, tally = { revenue:0, cost:0, consumption:0, skip:0 };
+    var dup = 0, xfer = 0, canc = 0, maybe = 0,
+        tally = { revenue:0, cost:0, consumption:0, saving:0, skip:0 };
     var html = rows.map(function(r, i){
       var k = kinds[i], isDup = !!have[r.sig];
       /* 내용은 달라도 같은 날 같은 금액이면 같은 결제일 수 있다 */
@@ -1838,7 +1877,7 @@ function startReview(text){
         (isDup
           ? '<span class="d">이미 있음</span>'
           : '<select data-i="'+i+'">'+
-            ['revenue','cost','consumption','skip'].map(function(kk){
+            ['revenue','cost','consumption','saving','skip'].map(function(kk){
               return '<option value="'+kk+'"'+(kk===k?' selected':'')+'>'+(kk==='skip'?'제외':KIND[kk])+'</option>';
             }).join('')+'</select>')+
         '</div>';
@@ -1846,16 +1885,19 @@ function startReview(text){
 
     document.getElementById('iTally').innerHTML =
       '<b class="c-rev">수익 '+tally.revenue+'</b><b class="c-cost">경비 '+tally.cost+'</b>'+
-      '<b class="c-cons">소비 '+tally.consumption+'</b><b>제외 '+tally.skip+'</b>';
+      '<b class="c-cons">소비 '+tally.consumption+'</b>'+
+      (tally.saving?'<b class="c-save">저축 '+tally.saving+'</b>':'')+
+      '<b>제외 '+tally.skip+'</b>';
     var msg = [];
     if(dup) msg.push('이미 있는 '+dup+'건은 자동으로 건너뜁니다');
-    if(xfer) msg.push('ATM 입금·카드대금 등 '+xfer+'건은 돈이 옮겨간 것이라 제외로 두었습니다 — 바꿀 수 있습니다');
+    if(xfer) msg.push('ATM 입금·카드대금·예금 해지 등 '+xfer+
+      '건은 돈이 옮겨간 것이라 제외로 두었습니다 — 예금을 깼다면 그때 넣은 저축 기록을 지워주세요');
     if(canc) msg.push('취소·환불 '+canc+'건도 제외입니다 — 원래 결제 기록을 지우는 편이 맞습니다');
     if(maybe) msg.push('노란 줄 '+maybe+'건은 이미 있는 기록과 날짜·금액이 같습니다 — 같은 결제면 제외로 바꿔주세요');
     document.getElementById('iDupe').textContent = msg.join(' · ');
     document.getElementById('iRows').innerHTML = html || '<div class="blank">가져올 줄이 없어요</div>';
     document.getElementById('ok').textContent =
-      (tally.revenue + tally.cost + tally.consumption) + '건 가져오기';
+      (tally.revenue + tally.cost + tally.consumption + tally.saving) + '건 가져오기';
   }
 
   openSheet(isSms ? '결제 문자를 읽었어요' : '열을 확인하세요',
@@ -2064,7 +2106,7 @@ function mergeState(p){
       state.rules.push({ kw:r.kw, kind:r.kind });
   });
 
-  if(p.cats) ['revenue','cost','consumption'].forEach(function(k){
+  if(p.cats) ['revenue','cost','consumption','saving'].forEach(function(k){
     (Array.isArray(p.cats[k]) ? p.cats[k] : []).forEach(function(c){
       if(typeof c === 'string' && c && state.cats[k].indexOf(c) < 0) state.cats[k].push(c);
     });
