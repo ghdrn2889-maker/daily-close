@@ -194,6 +194,27 @@ button{cursor:pointer}
 .st .k{font-size:12px;color:var(--faint);margin-top:5px;font-weight:600}
 
 /* ---------- goal ---------- */
+.brf{padding:4px 22px 18px}
+.bfl{font-size:17px;font-weight:700;letter-spacing:-.04em;line-height:1.45;
+  padding:12px 0 4px;color:var(--ink)}
+.bfl b{color:var(--blue);font-weight:800}
+.bfp{font-size:12.5px;color:var(--muted);font-weight:600;padding-bottom:10px}
+.bfp b{color:var(--ink);font-weight:700}
+.bfr{display:grid;grid-template-columns:62px auto 1fr;gap:10px;align-items:baseline;
+  padding:9px 0;border-top:1px solid var(--line)}
+.bfr .k{font-size:13px;font-weight:700;color:var(--muted);letter-spacing:-.02em}
+.bfr .v{font-size:14.5px;font-weight:700;letter-spacing:-.035em;white-space:nowrap}
+.bfr .s{font-size:11.5px;color:var(--faint);font-weight:600;text-align:right;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bfn{margin-top:12px;display:flex;flex-direction:column;gap:7px}
+.bfn>div{font-size:12.5px;line-height:1.55;font-weight:600;color:var(--ink-2);
+  background:var(--sunk);border-radius:11px;padding:10px 12px;padding-left:26px;position:relative}
+.bfn>div:before{position:absolute;left:11px;top:10px;font-size:11px}
+.bfn .up:before{content:'▲';color:var(--red)}
+.bfn .down:before{content:'▼';color:var(--blue)}
+.bfn .big:before{content:'●';color:var(--amber)}
+.bfn .thin:before{content:'!';color:var(--violet);font-weight:800}
+.bfn b{font-weight:800;color:var(--ink)}
 .goal{padding:24px 22px}
 .goal .msg{font-size:18px;font-weight:700;letter-spacing:-.04em;line-height:1.45}
 .goal .msg b{color:var(--blue);font-weight:800}
@@ -321,7 +342,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v2.3</span></div>
+    <div class="brand">당일 마감 <span class="ver">v2.4</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -376,6 +397,11 @@ select.inp{font-weight:600;appearance:none}
         <div class="say" id="monSay"></div>
       </div>
       <div class="split" id="monSplit"></div>
+    </div>
+
+    <div class="card">
+      <div class="chd"><span class="t">이달 브리핑</span><span class="s" id="brfWhen"></span></div>
+      <div class="brf" id="brf"></div>
     </div>
 
     <div class="card"><div class="goal" id="goal"></div></div>
@@ -1001,6 +1027,142 @@ function renderToday(){
     : '<div class="quick"><button class="qbtn qadd" data-qadd style="padding:13px 18px">＋ 자주 쓰는 묶음 만들기</button></div>';
 }
 
+/* ---------- 이달 브리핑 ----------
+   숫자를 읽어주는 일은 거의 다 계산이다. 서버도 열쇠도 없이 돈다.
+   판단이 필요한 문장만 규칙으로 쓰고, 애매하면 아예 말하지 않는다. */
+function byCat(l, kind){
+  var by = {};
+  l.forEach(function(t){ if(t.kind===kind) by[t.category] = (by[t.category]||0) + t.amount; });
+  return by;
+}
+function topCat(by, n){
+  return Object.keys(by).map(function(k){ return { k:k, v:by[k] }; })
+    .sort(function(a,b){ return b.v - a.v; }).slice(0, n || 3);
+}
+function pct(a, b){ return b > 0 ? Math.round(a / b * 1000) / 10 : null; }
+
+function brief(y, m){
+  var t = monT(y, m);
+  var py = m === 0 ? y - 1 : y, pm = m === 0 ? 11 : m - 1;
+  var pt = monT(py, pm);
+  var hadPrev = pt.list.length > 0;
+
+  var now = new Date();
+  var running = (y === now.getFullYear() && m === now.getMonth());
+  var total = dim(y, m), gone = running ? now.getDate() : total;
+
+  var b = {
+    y:y, m:m, running:running, gone:gone, total:total, t:t, pt:pt, hadPrev:hadPrev,
+    netDiff: hadPrev ? t.net - pt.net : null,
+    perEarn: t.earnDays ? Math.round(t.rev / t.earnDays) : 0,
+    prevPerEarn: pt.earnDays ? Math.round(pt.rev / pt.earnDays) : 0,
+    costRate: pct(t.cost, t.rev),
+    prevCostRate: pct(pt.cost, pt.rev),
+    saveRate: pct(t.save, t.rev),
+    topCons: topCat(byCat(t.list, 'consumption'), 3),
+    notes: []
+  };
+
+  /* 진행 중이면 이 속도로 갔을 때의 월말 */
+  if(running && gone >= 5 && t.list.length){
+    b.pace = Math.round(t.net / gone * total);
+  }
+
+  /* 소비 항목이 지난달보다 뚜렷하게 늘었을 때만 말한다 */
+  if(hadPrev){
+    var cur = byCat(t.list, 'consumption'), prev = byCat(pt.list, 'consumption');
+    Object.keys(cur).forEach(function(k){
+      var a = cur[k], p = prev[k] || 0, d = a - p;
+      if(d >= 100000 && (p === 0 || a >= p * 1.5))
+        b.notes.push({ t:'up', s:'소비 <b>'+esc(k)+'</b>가 지난달보다 '+man(d)+' 늘었어요'+
+          (p ? ' ('+fmt(p)+' → '+fmt(a)+')' : '') });
+    });
+  }
+
+  /* 이번 달 가장 큰 지출 한 건 */
+  var big = null;
+  t.list.forEach(function(x){
+    if(x.kind === 'revenue' || MOVED[x.kind]) return;
+    if(!big || x.amount > big.amount) big = x;
+  });
+  if(big && big.amount >= 200000)
+    b.notes.push({ t:'big', s:'가장 큰 지출은 '+Number(big.date.slice(8,10))+'일 <b>'+
+      esc(big.category)+'</b> '+fmt(big.amount)+'원 ('+KIND[big.kind]+')' });
+
+  /* 경비율이 눈에 띄게 움직였을 때 */
+  if(b.costRate !== null && b.prevCostRate !== null){
+    var cd = b.costRate - b.prevCostRate;
+    if(Math.abs(cd) >= 3)
+      b.notes.push({ t: cd > 0 ? 'up' : 'down',
+        s:'경비율이 지난달 '+b.prevCostRate+'% 에서 <b>'+b.costRate+'%</b> 로 '+
+          (cd > 0 ? '올랐어요' : '내렸어요') });
+  }
+
+  /* 고정비가 벌이에 비해 무거울 때 */
+  if(t.rev > 0 && t.fixed > 0){
+    var fr = pct(t.fixed, t.rev);
+    if(fr >= 15) b.notes.push({ t:'up', s:'고정지출이 수익의 <b>'+fr+'%</b> 예요 — 구독을 한 번 훑어볼 때입니다' });
+  }
+
+  /* 순익보다 많이 저축했다면 모자란 만큼은 전에 모아둔 돈에서 나간 것이다 */
+  if(t.save > 0 && t.save > t.net)
+    b.notes.push({ t:'thin', s:'저축이 이번 달 순익보다 '+man(t.save - Math.max(t.net,0))+
+      ' 많아요 — 그만큼은 전에 모아둔 돈에서 나갔습니다' });
+
+  /* 기록이 성긴 달은 숫자를 믿기 어렵다 */
+  var days = {};
+  t.list.forEach(function(x){ days[x.date] = 1; });
+  var kept = Object.keys(days).length;
+  if(t.list.length && kept < gone * 0.4)
+    b.notes.push({ t:'thin', s:gone+'일 중 <b>'+kept+'일</b>만 기록됐어요 — 빠진 날이 많으면 이 숫자도 실제와 멀어집니다' });
+
+  return b;
+}
+
+function briefLine(b){
+  var t = b.t;
+  if(!t.list.length) return '아직 이번 달 기록이 없어요';
+  if(!b.hadPrev) return t.net >= 0 ? man(t.net)+' 남았어요' : man(-t.net)+' 모자라요';
+  var d = b.netDiff;
+  if(Math.abs(d) < 10000) return '지난달과 비슷하게 가고 있어요';
+  return '지난달보다 <b>'+man(Math.abs(d))+'</b> '+(d > 0 ? '더 남았어요' : '덜 남았어요');
+}
+
+function briefHTML(y, m){
+  var b = brief(y, m), t = b.t;
+  if(!t.list.length)
+    return '<div class="blank">이번 달 기록이 쌓이면<br>브리핑을 만들어 드릴게요</div>';
+
+  function row(nm, val, sub){
+    return '<div class="bfr"><span class="k">'+nm+'</span>'+
+      '<span class="v">'+val+'</span>'+
+      '<span class="s">'+(sub||'')+'</span></div>';
+  }
+
+  var h = '<div class="bfl">'+briefLine(b)+'</div>';
+  if(b.pace !== undefined)
+    h += '<div class="bfp">이 속도면 월말에 <b>'+signed(b.pace)+'원</b> · '+
+         b.gone+'/'+b.total+'일 지남</div>';
+
+  h += row('벌이', fmt(t.rev)+'원',
+        t.earnDays ? t.earnDays+'일 · 1회 '+fmt(b.perEarn)+'원'+
+          (b.prevPerEarn ? ' (전월 '+fmt(b.prevPerEarn)+')' : '') : '기록 없음');
+  h += row('경비', fmt(t.cost)+'원',
+        b.costRate !== null ? '수익의 '+b.costRate+'%' : '');
+  h += row('소비', fmt(t.cons)+'원',
+        b.topCons.length ? b.topCons.map(function(c){ return esc(c.k)+' '+fmt(c.v); }).join(' · ') : '');
+  h += row('고정지출', fmt(t.fixed)+'원', '');
+  if(t.save > 0)
+    h += row('저축', '→'+fmt(t.save)+'원',
+          b.saveRate !== null ? '수익의 '+b.saveRate+'%' : '');
+
+  if(b.notes.length)
+    h += '<div class="bfn">'+b.notes.map(function(x){
+      return '<div class="'+x.t+'">'+x.s+'</div>'; }).join('')+'</div>';
+
+  return h;
+}
+
 /* ---------- 렌더: 이번 달 ---------- */
 function renderMonth(){
   var y = mon.getFullYear(), m = mon.getMonth(), now = new Date();
@@ -1018,6 +1180,11 @@ function renderMonth(){
   : t.net > 0     ? '지출을 다 메우고 ' + man(t.net) + ' 남았어요'
   : t.net < 0     ? man(t.net) + ' 모자라요' : '수입과 지출이 같아요';
   document.getElementById('monSplit').innerHTML = splitHTML(t, '이번 달 청구');
+
+  var bnow = new Date();
+  document.getElementById('brfWhen').textContent =
+    (y === bnow.getFullYear() && m === bnow.getMonth()) ? '진행 중' : '마감';
+  document.getElementById('brf').innerHTML = briefHTML(y, m);
 
   var gap = -t.net, pe = perEarn(), g = document.getElementById('goal');
   if(pe <= 0){
