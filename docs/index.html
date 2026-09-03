@@ -297,12 +297,28 @@ button{cursor:pointer}
 .cel .n{font-size:12.5px;font-weight:600;color:var(--ink-2)}
 .cel .p{width:4px;height:4px;border-radius:50%;background:transparent}
 .cel.mark .p{background:var(--blue)}
+.cel.bill{box-shadow:inset 0 0 0 1.5px var(--violet)}
+.cel.bill.now{box-shadow:inset 0 0 0 1.5px var(--violet)}
 .cel.up{background:var(--blue-soft)}
 .cel.dn{background:var(--red-soft)}
 .cel.now{background:var(--ink)}
 .cel.now .n{color:var(--white);font-weight:800}
 .cel.now .p{background:var(--white)}
 .cel.void{visibility:hidden}
+.sub{display:grid;grid-template-columns:38px 1fr auto 54px;gap:11px;align-items:center;
+  width:100%;border:0;background:transparent;text-align:left;padding:13px 22px}
+.sub+.sub{border-top:1px solid var(--line)}
+.sub:active{background:var(--sunk)}
+.sub .dd{font-size:16px;font-weight:800;letter-spacing:-.05em;color:var(--violet);
+  text-align:center}
+.sub .dd i{font-style:normal;font-size:10px;font-weight:700;margin-left:1px}
+.sub .nm{font-size:14.5px;font-weight:700;letter-spacing:-.03em;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub .nm small{display:block;font-size:11px;color:var(--faint);font-weight:600;margin-top:2px}
+.sub .amt{font-size:14px;font-weight:700;letter-spacing:-.035em;white-space:nowrap}
+.sub .st{font-size:11px;font-weight:700;color:var(--muted);text-align:right;white-space:nowrap}
+.sub.done{opacity:.45}
+.sub.due .dd,.sub.due .st{color:var(--red)}
 .lgd{display:flex;gap:15px;justify-content:center;padding:0 14px 20px;font-size:12px;
   color:var(--faint);flex-wrap:wrap;font-weight:500}
 .lgd i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px}
@@ -479,7 +495,7 @@ select.inp{font-weight:600;appearance:none}
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v3.2</span></div>
+    <div class="brand">당일 마감 <span class="ver">v3.3</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -550,6 +566,13 @@ select.inp{font-weight:600;appearance:none}
       <div id="potList"></div>
     </div>
 
+    <div class="card" id="subCard" style="display:none">
+      <div class="chd"><span class="t">구독 · 고정지출</span>
+        <button class="btn sm" id="addS2">추가</button></div>
+      <div id="subList"></div>
+      <div id="subFoot"></div>
+    </div>
+
     <div class="card">
       <div class="chd"><span class="t">날짜별</span></div>
       <div class="cal" id="cal"></div>
@@ -557,6 +580,7 @@ select.inp{font-weight:600;appearance:none}
         <span><i style="background:var(--blue-soft)"></i>흑자</span>
         <span><i style="background:var(--red-soft)"></i>적자</span>
         <span><i style="background:var(--blue);border-radius:50%;width:7px;height:7px"></i>수익 있는 날</span>
+        <span><i style="background:var(--violet);border-radius:50%;width:7px;height:7px"></i>구독 결제일</span>
       </div>
     </div>
 
@@ -1104,6 +1128,28 @@ function dailyFixed(){
   return state.recurrings.filter(function(r){ return r.active; })
     .reduce(function(s,r){ return s + annual(r)/365; }, 0);
 }
+/* 그 달 어느 날에 무엇이 빠지는가 — 달마다 실제 결제일을 뽑는다 */
+function billingsIn(y, m){
+  var last = dim(y, m), out = [];
+  state.recurrings.forEach(function(r){
+    if(!r.active) return;
+    var day;
+    if(r.cycle === 'monthly'){
+      day = Math.min(Math.max(r.billingDay || 1, 1), last);   /* 31일 결제가 2월이면 말일로 */
+    }else if(r.cycle === 'yearly'){
+      if((r.billingMonth || 1) !== m + 1) return;
+      day = Math.min(Math.max(r.billingDay || 1, 1), last);
+    }else return;                                             /* 매주는 날짜를 못 집는다 */
+    out.push({ r:r, day:day, date: y+'-'+pad(m+1)+'-'+pad(day) });
+  });
+  return out.sort(function(a,b){ return a.day - b.day; });
+}
+function billDays(y, m){
+  var set = {};
+  billingsIn(y, m).forEach(function(b){ set[b.day] = 1; });
+  return set;
+}
+
 /* 그 달에 실제로 청구되는 고정지출 */
 function monthFixed(y,m){
   return state.recurrings.filter(function(r){ return r.active; }).reduce(function(s,r){
@@ -1458,9 +1504,11 @@ function renderMonth(){
         '<div class="k">모은 돈'+(mo>1 ? ' · 월평균 '+fmt(Math.round(sv/mo/10000))+'만' : '')+'</div></div>';
     })();
 
+  renderSubs(y, m);
   renderPots(y, m);
 
   var first = new Date(y,m,1).getDay(), n = dim(y,m), fx = dailyFixed();
+  var bd = billDays(y, m);
   var html = DOW.map(function(x){ return '<div class="dw">'+x+'</div>'; }).join('');
   for(var i=0;i<first;i++) html += '<div class="cel void"></div>';
   for(var day=1; day<=n; day++){
@@ -1469,6 +1517,7 @@ function renderMonth(){
     var earned = l.some(function(x){ return x.kind==='revenue'; });
     var past = k <= TODAY, any = l.length || fx > 0;
     html += '<button class="cel'+(k===TODAY?' now':'')+(earned?' mark':'')+
+      (bd[day]?' bill':'')+
       ((past && any && k!==TODAY) ? (net>0?' up':net<0?' dn':'') : '')+'" data-day="'+k+'">'+
       '<span class="n">'+day+'</span><span class="p"></span></button>';
   }
@@ -2013,6 +2062,60 @@ function renderPattern(){
   }
 
   box.innerHTML = h;
+}
+
+/* ---------- 구독 ---------- */
+function renderSubs(y, m){
+  var card = document.getElementById('subCard');
+  var live = state.recurrings.filter(function(r){ return r.active; });
+  if(!live.length){ card.style.display = 'none'; return; }
+  card.style.display = '';
+
+  var bills = billingsIn(y, m);
+  var now = new Date(), isNow = (y === now.getFullYear() && m === now.getMonth());
+  var today = now.getDate();
+  var left = 0;
+
+  var rows = bills.map(function(b){
+    var st = '', cls = '';
+    if(isNow){
+      var d = b.day - today;
+      if(d < 0){ st = '지났음'; cls = ' done'; }
+      else if(d === 0){ st = '오늘'; cls = ' due'; }
+      else { st = d + '일 뒤'; left += b.r.amount; }
+    }else if(y+'-'+pad(m+1) < iso(now).slice(0,7)){ st = '결제됨'; cls = ' done'; }
+    else { left += b.r.amount; }
+
+    return '<button class="sub'+cls+'" data-sedit="'+b.r.id+'">'+
+      '<span class="dd">'+b.day+'<i>일</i></span>'+
+      '<span class="nm">'+esc(b.r.name)+
+        '<small>'+KIND[b.r.kind]+(b.r.cycle==='yearly'?' · 매년':'')+'</small></span>'+
+      '<span class="amt">'+fmt(b.r.amount)+'</span>'+
+      '<span class="st">'+st+'</span></button>';
+  }).join('');
+
+  var weekly = live.filter(function(r){ return r.cycle === 'weekly'; });
+  if(weekly.length)
+    rows += weekly.map(function(r){
+      return '<button class="sub" data-sedit="'+r.id+'">'+
+        '<span class="dd">매주</span>'+
+        '<span class="nm">'+esc(r.name)+'<small>'+KIND[r.kind]+'</small></span>'+
+        '<span class="amt">'+fmt(r.amount)+'</span><span class="st"></span></button>';
+    }).join('');
+
+  document.getElementById('subList').innerHTML = rows ||
+    '<div class="blank">이번 달에 빠지는 구독이 없어요</div>';
+
+  document.getElementById('subFoot').innerHTML =
+    '<div class="split" style="margin-top:0">'+
+      '<div class="li"><span class="nm">이번 달 청구</span><span class="amt">'+
+        fmt(monthFixed(y,m))+'원</span></div>'+
+      (isNow && left
+        ? '<div class="li"><span class="nm">아직 남은 결제</span><span class="amt">'+
+          fmt(left)+'원</span></div>' : '')+
+      '<div class="li"><span class="nm">하루당<i>연환산 ÷ 365</i></span><span class="amt">'+
+        fmt(dailyFixed())+'원</span></div>'+
+    '</div>';
 }
 
 /* ---------- 모으는 곳 ---------- */
@@ -3170,6 +3273,10 @@ document.querySelector('.acts').addEventListener('click', function(e){
 document.getElementById('addQ').onclick = function(){ sheetPreset(null); };
 document.getElementById('addS').onclick = function(){ sheetSub(null); };
 document.getElementById('addP').onclick = function(){ sheetPot(null); };
+document.getElementById('addS2').onclick = function(){ sheetSub(null); };
+document.getElementById('subList').addEventListener('click', function(e){
+  var b = e.target.closest('[data-sedit]'); if(b) sheetSub(b.dataset.sedit);
+});
 document.getElementById('pwSeg').addEventListener('click', function(e){
   var b = e.target.closest('[data-w]'); if(!b) return;
   this.querySelectorAll('[data-w]').forEach(function(x){ x.setAttribute('aria-pressed', x===b); });
