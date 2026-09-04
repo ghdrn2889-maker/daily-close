@@ -487,13 +487,14 @@ select.inp{font-weight:600;appearance:none}
     <b>저장된 데이터를 읽지 못했습니다.</b> 원본은 지우지 않고 따로 보관해 뒀습니다.
     덮어쓰지 않도록, 새로 입력하기 전에 알려주세요.
   </div>
+  <div class="info" id="dueToday" hidden></div>
   <div class="info" id="bkRemind" hidden>
     <span id="bkMsg"></span>
     <button class="btn sm" type="button" id="bkNow">지금 백업</button>
   </div>
 
   <header class="top">
-    <div class="brand">당일 마감 <span class="ver">v3.3</span></div>
+    <div class="brand">당일 마감 <span class="ver">v3.4</span></div>
     <div class="nav" role="tablist">
       <button class="nv" role="tab" data-v="today" aria-selected="true">오늘</button>
       <button class="nv" role="tab" data-v="month" aria-selected="false">이번 달</button>
@@ -1241,6 +1242,15 @@ function renderToday(){
                           : '수입과 지출이 같아요')+'</div></div>'+
       '<div class="split">'+splitHTML(t,'하루치')+'</div>';
   }
+
+  var dueToday = isToday ? billingsIn(cur.getFullYear(), cur.getMonth())
+    .filter(function(b){ return b.day === cur.getDate(); }) : [];
+  var due = document.getElementById('dueToday');
+  if(dueToday.length){
+    due.hidden = false;
+    due.innerHTML = '<b>오늘 빠지는 구독</b> '+
+      dueToday.map(function(b){ return esc(b.r.name)+' '+fmt(b.r.amount); }).join(' · ');
+  }else due.hidden = true;
 
   var list = onDate(key);
   document.getElementById('dayCnt').textContent = list.length ? list.length+'건' : '';
@@ -2065,9 +2075,26 @@ function renderPattern(){
 /* ---------- 구독 ---------- */
 function renderSubs(y, m){
   var card = document.getElementById('subCard');
-  var live = state.recurrings.filter(function(r){ return r.active; });
-  if(!live.length){ card.style.display = 'none'; return; }
   card.style.display = '';
+  var live = state.recurrings.filter(function(r){ return r.active; });
+
+  if(!state.recurrings.length){
+    document.getElementById('subList').innerHTML =
+      '<div class="blank">넷플릭스 · 통신비 · 보험처럼<br>매달 자동으로 빠지는 돈을 넣어두면<br>'+
+      '<b>언제 얼마가 나가는지</b> 여기에 날짜순으로 보여드려요</div>';
+    document.getElementById('subFoot').innerHTML =
+      '<div class="pad" style="padding-top:0"><button class="btn pri" type="button" id="addS3">'+
+      '첫 구독 등록하기</button></div>';
+    document.getElementById('addS3').onclick = function(){ sheetSub(null); };
+    return;
+  }
+  if(!live.length){
+    document.getElementById('subList').innerHTML =
+      '<div class="blank">등록한 구독 '+state.recurrings.length+'개가 모두 꺼져 있어요<br>'+
+      '<b>설정 → 구독 · 고정지출</b>에서 켜면 다시 계산됩니다</div>';
+    document.getElementById('subFoot').innerHTML = '';
+    return;
+  }
 
   var bills = billingsIn(y, m);
   var now = new Date(), isNow = (y === now.getFullYear() && m === now.getMonth());
